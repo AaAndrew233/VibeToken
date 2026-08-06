@@ -43,14 +43,14 @@ remaining_fraction = remaining_equivalent_accounts / observed_accounts
 ```text
 account_effective_remaining = min(five_hour_remaining, seven_day_remaining)
 pool_effective_remaining = sum(account_effective_remaining)
-pool_effective_fraction = pool_effective_remaining / assessable_accounts
+pool_effective_fraction = pool_effective_remaining / eligible_accounts
 displayed_remaining_percent = pool_effective_remaining * 100%
-displayed_total_percent = assessable_accounts * 100%
+displayed_total_percent = eligible_accounts * 100%
 ```
 
-账号必须同时满足状态正常、参与调度、快照未过期、两个窗口均已探测且剩余比例都大于 0，才计入“当前可用”。任一窗口为 0 时计入“窗口受限”，即使另一个窗口仍为 100% 也不能视为可用。缺失或过期窗口不进入实际可用分母，单独列为数据异常。
+账号必须同时满足状态正常、参与调度、快照未过期、两个窗口均已探测且剩余比例都大于 0，才计入“当前可用”。任一窗口为 0 时计入“窗口受限”，即使另一个窗口仍为 100% 也不能视为可用。缺失或过期窗口不贡献已知剩余值，但仍保留在总容量分母中，并单独列为数据异常。
 
-界面分别展示 `available_accounts / assessable_accounts` 与全池累计“剩余额度 / 总额度”。每个满额账号代表 `100%`；一个账号剩余 77%、其余 10 个账号受限时显示 `1 / 11` 与 `77% / 1,100%`，进度条为全池剩余 `7%`。窗口明细分别展示 5h、7d 的累计剩余百分比，便于直接判断限制窗口。两个账号分别实际可用 80% 和 60% 时，剩余额度显示 `140%`，不取平均值。缺失或过期窗口不进入已探测分母，并继续单列为数据异常。
+界面分别展示 `available_accounts / eligible_accounts` 与全池累计“剩余额度 / 总额度”。每个满额账号代表 `100%`；一个账号剩余 77%、其余 10 个账号受限时显示 `1 / 11` 与 `77% / 1,100%`，进度条为全池剩余 `7%`。窗口明细分别展示 5h、7d 的累计剩余百分比，便于直接判断限制窗口。两个账号分别实际可用 80% 和 60% 时，剩余额度显示 `140%`，不取平均值。缺失或过期窗口的余额按未知处理，不缩小总额度分母，并继续单列为数据异常。
 
 ## 纳入与排除
 

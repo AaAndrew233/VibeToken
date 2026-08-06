@@ -63,9 +63,9 @@ struct Sub2APIPoolSection: View {
     private func poolContent(_ snapshot: Sub2APIPoolSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 18) {
-                availableAccounts(snapshot.effectiveCapacity)
+                availableAccounts(snapshot)
                 Divider().frame(height: 108)
-                poolCapacity(snapshot.effectiveCapacity)
+                poolCapacity(snapshot)
             }
 
             HStack(spacing: 14) {
@@ -123,17 +123,22 @@ struct Sub2APIPoolSection: View {
     }
 
     private func availableAccounts(
-        _ value: Sub2APIEffectiveCapacitySnapshot
+        _ snapshot: Sub2APIPoolSnapshot
     ) -> some View {
-        let fraction = value.availableAccountFraction
+        let value = snapshot.effectiveCapacity
+        let fraction = snapshot.displayedAvailableAccountFraction
         return VStack(alignment: .leading, spacing: 7) {
             Text(state.text(.effectiveCapacity))
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
-            Text(availableAccountCountText(value))
+            Text(availableAccountCountText(snapshot))
                 .font(.system(size: 24, weight: .semibold, design: .rounded))
                 .monospacedDigit()
-                .foregroundStyle(value.observedAccounts == 0 ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+                .foregroundStyle(
+                    snapshot.totalCapacityAccounts == 0
+                        ? AnyShapeStyle(.secondary)
+                        : AnyShapeStyle(.primary)
+                )
             ProgressView(value: fraction ?? 0)
                 .tint(.green)
             Text(limitedAccountSummary(value.windowLimitedAccounts))
@@ -151,14 +156,15 @@ struct Sub2APIPoolSection: View {
     }
 
     private func poolCapacity(
-        _ value: Sub2APIEffectiveCapacitySnapshot
+        _ snapshot: Sub2APIPoolSnapshot
     ) -> some View {
-        let hasCapacity = value.observedAccounts > 0
+        let value = snapshot.effectiveCapacity
+        let hasCapacity = snapshot.totalCapacityAccounts > 0
         return VStack(alignment: .leading, spacing: 7) {
             Text(state.text(.windowBalances))
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
-            Text(poolCapacityText(value))
+            Text(poolCapacityText(snapshot))
                 .font(.system(size: 24, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(hasCapacity ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
@@ -166,7 +172,7 @@ struct Sub2APIPoolSection: View {
                 .minimumScaleFactor(0.72)
             ProgressView(
                 value: value.remainingEquivalentAccounts,
-                total: Double(max(1, value.observedAccounts))
+                total: Double(max(1, snapshot.totalCapacityAccounts))
             )
                 .tint(.teal)
             Text(poolWindowCapacityText(value))
@@ -248,15 +254,15 @@ struct Sub2APIPoolSection: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
-    private func availableAccountCountText(_ value: Sub2APIEffectiveCapacitySnapshot) -> String {
-        guard value.observedAccounts > 0 else { return "--" }
-        return "\(value.availableAccounts) / \(value.observedAccounts)"
+    private func availableAccountCountText(_ snapshot: Sub2APIPoolSnapshot) -> String {
+        guard snapshot.totalCapacityAccounts > 0 else { return "--" }
+        return "\(snapshot.effectiveCapacity.availableAccounts) / \(snapshot.totalCapacityAccounts)"
     }
 
-    private func poolCapacityText(_ value: Sub2APIEffectiveCapacitySnapshot) -> String {
-        guard value.observedAccounts > 0 else { return "--" }
-        return "\(capacityPercentText(value.remainingEquivalentAccounts))"
-            + " / \(capacityPercentText(Double(value.observedAccounts)))"
+    private func poolCapacityText(_ snapshot: Sub2APIPoolSnapshot) -> String {
+        guard snapshot.totalCapacityAccounts > 0 else { return "--" }
+        return "\(capacityPercentText(snapshot.effectiveCapacity.remainingEquivalentAccounts))"
+            + " / \(capacityPercentText(Double(snapshot.totalCapacityAccounts)))"
     }
 
     private func poolWindowCapacityText(_ value: Sub2APIEffectiveCapacitySnapshot) -> String {

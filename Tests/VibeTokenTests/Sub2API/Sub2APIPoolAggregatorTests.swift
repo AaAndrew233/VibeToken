@@ -102,6 +102,13 @@ final class Sub2APIPoolAggregatorTests: XCTestCase {
         )
 
         XCTAssertEqual(snapshot.eligibleAccounts, 11)
+        XCTAssertEqual(snapshot.totalCapacityAccounts, 11)
+        XCTAssertEqual(snapshot.displayedAvailableAccountFraction, 1.0 / 11.0)
+        XCTAssertEqual(
+            try XCTUnwrap(snapshot.displayedRemainingFraction),
+            0.79 / 11,
+            accuracy: 0.000_001
+        )
         XCTAssertEqual(snapshot.effectiveCapacity.observedAccounts, 11)
         XCTAssertEqual(snapshot.effectiveCapacity.availableAccounts, 1)
         XCTAssertEqual(snapshot.effectiveCapacity.windowLimitedAccounts, 10)
@@ -137,6 +144,9 @@ final class Sub2APIPoolAggregatorTests: XCTestCase {
 
         XCTAssertEqual(snapshot.missingWindowAccounts, 1)
         XCTAssertEqual(snapshot.staleWindowAccounts, 1)
+        XCTAssertEqual(snapshot.totalCapacityAccounts, 2)
+        XCTAssertEqual(snapshot.displayedAvailableAccountFraction, 0)
+        XCTAssertEqual(snapshot.displayedRemainingFraction, 0)
         XCTAssertEqual(snapshot.effectiveCapacity.observedAccounts, 0)
         XCTAssertEqual(snapshot.effectiveCapacity.availableAccounts, 0)
         XCTAssertNil(snapshot.effectiveCapacity.poolRemainingFraction)

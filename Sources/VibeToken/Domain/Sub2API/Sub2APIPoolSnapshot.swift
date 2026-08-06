@@ -72,6 +72,23 @@ struct Sub2APIPoolSnapshot: Equatable, Sendable {
     let sevenDay: Sub2APIWindowSnapshot
     let plans: [Sub2APIPlanSnapshot]
     let fetchedAt: Date
+
+    var totalCapacityAccounts: Int {
+        eligibleAccounts
+    }
+
+    var displayedAvailableAccountFraction: Double? {
+        guard totalCapacityAccounts > 0 else { return nil }
+        return Double(effectiveCapacity.availableAccounts) / Double(totalCapacityAccounts)
+    }
+
+    var displayedRemainingFraction: Double? {
+        guard totalCapacityAccounts > 0 else { return nil }
+        return min(
+            1,
+            max(0, effectiveCapacity.remainingEquivalentAccounts / Double(totalCapacityAccounts))
+        )
+    }
 }
 
 struct Sub2APIAccountSnapshot: Equatable, Sendable {
