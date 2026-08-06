@@ -4,9 +4,7 @@ dist/
 *.xcuserstate
 .DS_Store
 .impeccable.md
+.local/
 
-# 设计过程资产不进入公开仓库；保留正式母版与运行时图标。
-设计资产/应用图标/过程图/
-设计资产/应用图标/最终确认版本/
-设计资产/应用图标/图片确认清单.json
-设计资产/应用图标/macOS图标源/VibeToken.iconset/
+# Local design iterations are not part of the public repository.
+design-work/
