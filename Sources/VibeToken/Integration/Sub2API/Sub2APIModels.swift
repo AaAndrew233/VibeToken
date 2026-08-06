@@ -78,6 +78,9 @@ struct Sub2APIAccountPayload: Decodable, Sendable {
     let parentAccountID: Int64?
     let credentials: Credentials?
     let extra: Extra?
+    let rateLimitResetAt: String?
+    let overloadUntil: String?
+    let tempUnschedulableUntil: String?
 
     struct Credentials: Decodable, Sendable {
         let planType: String?
@@ -143,6 +146,9 @@ struct Sub2APIAccountPayload: Decodable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id, status, schedulable, credentials, extra
+        case rateLimitResetAt = "rate_limit_reset_at"
+        case overloadUntil = "overload_until"
+        case tempUnschedulableUntil = "temp_unschedulable_until"
         case parentAccountID = "parent_account_id"
     }
 
@@ -154,6 +160,9 @@ struct Sub2APIAccountPayload: Decodable, Sendable {
         parentAccountID = container.flexibleInt64(forKey: .parentAccountID)
         credentials = try? container.decodeIfPresent(Credentials.self, forKey: .credentials)
         extra = try? container.decodeIfPresent(Extra.self, forKey: .extra)
+        rateLimitResetAt = container.flexibleString(forKey: .rateLimitResetAt)
+        overloadUntil = container.flexibleString(forKey: .overloadUntil)
+        tempUnschedulableUntil = container.flexibleString(forKey: .tempUnschedulableUntil)
     }
 
     func snapshot(now: Date) -> Sub2APIAccountSnapshot {
@@ -177,7 +186,10 @@ struct Sub2APIAccountPayload: Decodable, Sendable {
                 afterSeconds: extra?.sevenDayResetAfterSeconds ?? sevenDayFallback?.resetAfterSeconds,
                 now: now
             ),
-            usageUpdatedAt: extra?.usageUpdatedAt.flatMap(Self.parseDate)
+            usageUpdatedAt: extra?.usageUpdatedAt.flatMap(Self.parseDate),
+            rateLimitResetAt: rateLimitResetAt.flatMap(Self.parseDate),
+            overloadUntil: overloadUntil.flatMap(Self.parseDate),
+            tempUnschedulableUntil: tempUnschedulableUntil.flatMap(Self.parseDate)
         )
     }
 

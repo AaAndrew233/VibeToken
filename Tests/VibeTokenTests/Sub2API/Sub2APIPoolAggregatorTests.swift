@@ -30,10 +30,10 @@ final class Sub2APIPoolAggregatorTests: XCTestCase {
         XCTAssertEqual(snapshot.unavailableAccounts, 1)
         XCTAssertEqual(snapshot.excludedShadowAccounts, 1)
         XCTAssertEqual(snapshot.missingWindowAccounts, 1)
-        XCTAssertEqual(snapshot.staleWindowAccounts, 1)
-        XCTAssertEqual(snapshot.effectiveCapacity.observedAccounts, 1)
+        XCTAssertEqual(snapshot.staleWindowAccounts, 0)
+        XCTAssertEqual(snapshot.effectiveCapacity.observedAccounts, 2)
         XCTAssertEqual(snapshot.effectiveCapacity.availableAccounts, 1)
-        XCTAssertEqual(snapshot.effectiveCapacity.windowLimitedAccounts, 0)
+        XCTAssertEqual(snapshot.effectiveCapacity.windowLimitedAccounts, 1)
         XCTAssertEqual(snapshot.effectiveCapacity.remainingEquivalentAccounts, 0.8, accuracy: 0.000_001)
         XCTAssertEqual(snapshot.effectiveCapacity.availableAccountRemainingFraction, 0.8)
         XCTAssertEqual(snapshot.fiveHour.observedAccounts, 2)
@@ -129,6 +129,91 @@ final class Sub2APIPoolAggregatorTests: XCTestCase {
         )
     }
 
+    func testExhaustedWindowTakesPrecedenceOverStaleUsageTimestamp() {
+        let now = Date()
+        let snapshot = Sub2APIPoolAggregator.aggregate(
+            accounts: [
+                account(
+                    id: 1,
+                    fiveHour: 0,
+                    sevenDay: 100,
+                    updatedAt: now.addingTimeInterval(-1_000)
+                )
+            ],
+            fetchedAt: now,
+            staleAfter: 900
+        )
+
+        XCTAssertEqual(snapshot.staleWindowAccounts, 0)
+        XCTAssertEqual(snapshot.missingWindowAccounts, 0)
+        XCTAssertEqual(snapshot.effectiveCapacity.observedAccounts, 1)
+        XCTAssertEqual(snapshot.effectiveCapacity.availableAccounts, 0)
+        XCTAssertEqual(snapshot.effectiveCapacity.windowLimitedAccounts, 1)
+        XCTAssertEqual(snapshot.effectiveCapacity.remainingEquivalentAccounts, 0)
+    }
+
+    func testOfficialRuntimeStatusSeparatesRateLimitedAndUnavailableAccounts() {
+        let now = Date()
+        let accounts = [
+            account(
+                id: 1,
+                schedulable: false,
+                fiveHour: 20,
+                sevenDay: 30,
+                updatedAt: now,
+                rateLimitResetAt: now.addingTimeInterval(600)
+            ),
+            account(
+                id: 2,
+                fiveHour: 10,
+                sevenDay: 20,
+                updatedAt: now,
+                tempUnschedulableUntil: now.addingTimeInterval(600)
+            ),
+            account(
+                id: 3,
+                fiveHour: 10,
+                sevenDay: 20,
+                updatedAt: now,
+                overloadUntil: now.addingTimeInterval(600)
+            ),
+            account(
+                id: 4,
+                status: "error",
+                fiveHour: 10,
+                sevenDay: 20,
+                updatedAt: now
+            ),
+            account(
+                id: 5,
+                schedulable: false,
+                fiveHour: 0,
+                sevenDay: 100,
+                updatedAt: now
+            ),
+            account(
+                id: 6,
+                fiveHour: 0,
+                sevenDay: 100,
+                updatedAt: now,
+                tempUnschedulableUntil: now.addingTimeInterval(600)
+            )
+        ]
+
+        let snapshot = Sub2APIPoolAggregator.aggregate(
+            accounts: accounts,
+            fetchedAt: now,
+            staleAfter: 900
+        )
+
+        XCTAssertEqual(snapshot.totalAccounts, 6)
+        XCTAssertEqual(snapshot.eligibleAccounts, 1)
+        XCTAssertEqual(snapshot.unavailableAccounts, 5)
+        XCTAssertEqual(snapshot.effectiveCapacity.availableAccounts, 0)
+        XCTAssertEqual(snapshot.effectiveCapacity.windowLimitedAccounts, 1)
+        XCTAssertEqual(snapshot.effectiveCapacity.nextRecoveryAt, now.addingTimeInterval(600))
+    }
+
     func testMissingOrStaleWindowIsNotReportedAsCurrentlyAvailable() {
         let now = Date()
         let accounts = [
@@ -188,7 +273,10 @@ final class Sub2APIPoolAggregatorTests: XCTestCase {
         plan: String = "Pro",
         fiveHour: Double?,
         sevenDay: Double?,
-        updatedAt: Date?
+        updatedAt: Date?,
+        rateLimitResetAt: Date? = nil,
+        overloadUntil: Date? = nil,
+        tempUnschedulableUntil: Date? = nil
     ) -> Sub2APIAccountSnapshot {
         Sub2APIAccountSnapshot(
             id: id,
@@ -200,7 +288,10 @@ final class Sub2APIPoolAggregatorTests: XCTestCase {
             fiveHourResetAt: nil,
             sevenDayUsedPercent: sevenDay,
             sevenDayResetAt: nil,
-            usageUpdatedAt: updatedAt
+            usageUpdatedAt: updatedAt,
+            rateLimitResetAt: rateLimitResetAt,
+            overloadUntil: overloadUntil,
+            tempUnschedulableUntil: tempUnschedulableUntil
         )
     }
 }
