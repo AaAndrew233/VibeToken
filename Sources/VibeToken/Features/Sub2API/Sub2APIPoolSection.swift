@@ -1,0 +1,313 @@
+import SwiftUI
+
+struct Sub2APIPoolSection: View {
+    @Bindable var state: AppState
+    let onConfigure: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Label(state.text(.relayCapacity), systemImage: "gauge.with.dots.needle.50percent")
+                    .font(.system(size: 13, weight: .semibold))
+                Spacer()
+                poolStatus
+                Button(action: onConfigure) {
+                    Image(systemName: "slider.horizontal.3")
+                        .frame(width: 26, height: 26)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(state.text(.configureConnection))
+                .help(state.text(.configureConnection))
+            }
+
+            if let snapshot = state.sub2APIPoolSnapshot {
+                poolContent(snapshot)
+                if case .failed(let error) = state.sub2APIStatus {
+                    errorLabel(error)
+                }
+            } else {
+                emptyContent
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 18)
+    }
+
+    @ViewBuilder
+    private var poolStatus: some View {
+        switch state.sub2APIStatus {
+        case .connected:
+            Circle()
+                .fill(.green)
+                .frame(width: 7, height: 7)
+                .accessibilityLabel(state.text(.connected))
+        case .connecting, .syncing:
+            ProgressView()
+                .controlSize(.small)
+                .accessibilityLabel(state.text(.syncing))
+        case .requiresTwoFactor:
+            Circle()
+                .fill(.orange)
+                .frame(width: 7, height: 7)
+                .accessibilityLabel(state.text(.verificationCode))
+        case .failed(let error):
+            Circle()
+                .fill(.red)
+                .frame(width: 7, height: 7)
+                .accessibilityLabel(error.message(language: state.language))
+        case .disconnected:
+            EmptyView()
+        }
+    }
+
+    private func poolContent(_ snapshot: Sub2APIPoolSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 18) {
+                availableAccounts(snapshot.effectiveCapacity)
+                Divider().frame(height: 108)
+                poolCapacity(snapshot.effectiveCapacity)
+            }
+
+            HStack(spacing: 14) {
+                diagnostic(
+                    state.text(.currentAvailableAccounts),
+                    snapshot.effectiveCapacity.availableAccounts,
+                    color: .green
+                )
+                diagnostic(
+                    state.text(.windowLimitedAccounts),
+                    snapshot.effectiveCapacity.windowLimitedAccounts,
+                    color: .orange
+                )
+                diagnostic(state.text(.unavailableAccounts), snapshot.unavailableAccounts, color: .orange)
+                diagnostic(
+                    state.text(.dataIssues),
+                    snapshot.staleWindowAccounts + snapshot.missingWindowAccounts,
+                    color: .secondary
+                )
+            }
+
+            if snapshot.excludedShadowAccounts > 0
+                || snapshot.staleWindowAccounts > 0
+                || snapshot.missingWindowAccounts > 0 {
+                HStack(spacing: 8) {
+                    if snapshot.excludedShadowAccounts > 0 {
+                        Text("\(state.text(.excludedShadows)) \(snapshot.excludedShadowAccounts)")
+                    }
+                    if snapshot.staleWindowAccounts > 0 {
+                        Text("\(state.text(.staleData)) \(snapshot.staleWindowAccounts)")
+                    }
+                    if snapshot.missingWindowAccounts > 0 {
+                        Text("\(state.text(.missingWindow)) \(snapshot.missingWindowAccounts)")
+                    }
+                }
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+            }
+
+            HStack(spacing: 10) {
+                if !snapshot.plans.isEmpty {
+                    Text(planSummary(snapshot.plans))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                Spacer(minLength: 8)
+                Text(RefreshTimestampFormatter.string(snapshot.fetchedAt, language: state.language))
+                    .monospacedDigit()
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(1)
+            }
+            .font(.system(size: 10))
+            .foregroundStyle(.tertiary)
+        }
+    }
+
+    private func availableAccounts(
+        _ value: Sub2APIEffectiveCapacitySnapshot
+    ) -> some View {
+        let fraction = value.availableAccountFraction
+        return VStack(alignment: .leading, spacing: 7) {
+            Text(state.text(.effectiveCapacity))
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+            Text(availableAccountCountText(value))
+                .font(.system(size: 24, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(value.observedAccounts == 0 ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+            ProgressView(value: fraction ?? 0)
+                .tint(.green)
+            Text(limitedAccountSummary(value.windowLimitedAccounts))
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            if let resetAt = value.nextRecoveryAt {
+                Text("\(state.text(.nextRecovery)) \(resetText(resetAt))")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func poolCapacity(
+        _ value: Sub2APIEffectiveCapacitySnapshot
+    ) -> some View {
+        let hasCapacity = value.observedAccounts > 0
+        return VStack(alignment: .leading, spacing: 7) {
+            Text(state.text(.windowBalances))
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+            Text(poolCapacityText(value))
+                .font(.system(size: 24, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(hasCapacity ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+            ProgressView(
+                value: value.remainingEquivalentAccounts,
+                total: Double(max(1, value.observedAccounts))
+            )
+                .tint(.teal)
+            Text(poolWindowCapacityText(value))
+                .font(.system(size: 10, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            if let limitingText = limitingText(value) {
+                Text(limitingText)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.orange)
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func diagnostic(_ title: String, _ count: Int, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(String(count))
+                .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                .foregroundStyle(color)
+            Text(title)
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var emptyContent: some View {
+        switch state.sub2APIStatus {
+        case .disconnected:
+            HStack(spacing: 12) {
+                Image(systemName: "server.rack")
+                    .foregroundStyle(.blue)
+                    .frame(width: 32, height: 32)
+                    .background(.blue.opacity(0.1), in: RoundedRectangle(cornerRadius: 7))
+                Text(state.text(.noWindowData))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button(state.text(.connectSub2API), action: onConfigure)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+            }
+        case .connecting, .syncing:
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text(state.text(.syncing))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, minHeight: 52, alignment: .center)
+        case .requiresTwoFactor:
+            Button(state.text(.verificationCode), action: onConfigure)
+                .buttonStyle(.borderedProminent)
+                .frame(maxWidth: .infinity, minHeight: 52)
+        case .failed(let error):
+            VStack(spacing: 10) {
+                errorLabel(error)
+                Button(state.text(.configureConnection), action: onConfigure)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
+            .frame(maxWidth: .infinity, minHeight: 58)
+        case .connected:
+            Text(state.text(.noWindowData))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, minHeight: 52)
+        }
+    }
+
+    private func errorLabel(_ error: Sub2APIError) -> some View {
+        Label(error.message(language: state.language), systemImage: "exclamationmark.triangle.fill")
+            .font(.system(size: 11))
+            .foregroundStyle(.orange)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func availableAccountCountText(_ value: Sub2APIEffectiveCapacitySnapshot) -> String {
+        guard value.observedAccounts > 0 else { return "--" }
+        return "\(value.availableAccounts) / \(value.observedAccounts)"
+    }
+
+    private func poolCapacityText(_ value: Sub2APIEffectiveCapacitySnapshot) -> String {
+        guard value.observedAccounts > 0 else { return "--" }
+        return "\(capacityPercentText(value.remainingEquivalentAccounts))"
+            + " / \(capacityPercentText(Double(value.observedAccounts)))"
+    }
+
+    private func poolWindowCapacityText(_ value: Sub2APIEffectiveCapacitySnapshot) -> String {
+        guard value.observedAccounts > 0 else { return state.text(.noWindowData) }
+        return "5h \(capacityPercentText(value.fiveHourRemainingEquivalentAccounts))"
+            + " · 7d \(capacityPercentText(value.sevenDayRemainingEquivalentAccounts))"
+    }
+
+    private func capacityPercentText(_ equivalentAccounts: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.locale = locale
+        formatter.numberStyle = .percent
+        let percentage = equivalentAccounts * 100
+        formatter.minimumFractionDigits = abs(percentage.rounded() - percentage) < 0.000_1 ? 0 : 1
+        formatter.maximumFractionDigits = 1
+        formatter.usesGroupingSeparator = true
+        return formatter.string(from: NSNumber(value: equivalentAccounts)) ?? "--"
+    }
+
+    private func limitedAccountSummary(_ count: Int) -> String {
+        state.language == .simplifiedChinese
+            ? "\(count) 个账号受窗口限制"
+            : "\(count) accounts window-limited"
+    }
+
+    private func limitingText(_ value: Sub2APIEffectiveCapacitySnapshot) -> String? {
+        guard value.observedAccounts > 0 else { return nil }
+        let fiveHour = value.fiveHourRemainingEquivalentAccounts
+        let sevenDay = value.sevenDayRemainingEquivalentAccounts
+        if abs(fiveHour - sevenDay) < 0.000_1 {
+            return state.text(.limitedByBothWindows)
+        }
+        return state.text(fiveHour < sevenDay ? .limitedByFiveHour : .limitedBySevenDay)
+    }
+
+    private func resetText(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.timeZone = .current
+        formatter.dateFormat = state.language == .simplifiedChinese ? "M/d HH:mm" : "MMM d, HH:mm"
+        return formatter.string(from: date)
+    }
+
+    private func planSummary(_ plans: [Sub2APIPlanSnapshot]) -> String {
+        plans.prefix(4).map { "\($0.plan) \($0.accountCount)" }.joined(separator: "  ·  ")
+    }
+
+    private var locale: Locale {
+        state.language == .simplifiedChinese
+            ? Locale(identifier: "zh_CN")
+            : Locale(identifier: "en_US")
+    }
+
+}
