@@ -68,6 +68,10 @@ struct Sub2APIPoolSection: View {
                 poolCapacity(snapshot)
             }
 
+            if snapshot.requiresCapacityConfiguration {
+                capacityConfigurationPrompt(snapshot.unconfiguredCapacityAccounts)
+            }
+
             HStack(spacing: 14) {
                 diagnostic(
                     state.text(.currentAvailableAccounts),
@@ -82,14 +86,17 @@ struct Sub2APIPoolSection: View {
                 diagnostic(state.text(.unavailableAccounts), snapshot.unavailableAccounts, color: .orange)
                 diagnostic(
                     state.text(.dataIssues),
-                    snapshot.staleWindowAccounts + snapshot.missingWindowAccounts,
+                    snapshot.staleWindowAccounts
+                        + snapshot.missingWindowAccounts
+                        + snapshot.unconfiguredCapacityAccounts,
                     color: .secondary
                 )
             }
 
             if snapshot.excludedShadowAccounts > 0
                 || snapshot.staleWindowAccounts > 0
-                || snapshot.missingWindowAccounts > 0 {
+                || snapshot.missingWindowAccounts > 0
+                || snapshot.unconfiguredCapacityAccounts > 0 {
                 HStack(spacing: 8) {
                     if snapshot.excludedShadowAccounts > 0 {
                         Text("\(state.text(.excludedShadows)) \(snapshot.excludedShadowAccounts)")
@@ -99,6 +106,12 @@ struct Sub2APIPoolSection: View {
                     }
                     if snapshot.missingWindowAccounts > 0 {
                         Text("\(state.text(.missingWindow)) \(snapshot.missingWindowAccounts)")
+                    }
+                    if snapshot.unconfiguredCapacityAccounts > 0 {
+                        Text(
+                            "\(state.text(.unconfiguredCapacity)) "
+                                + "\(snapshot.unconfiguredCapacityAccounts)"
+                        )
                     }
                 }
                 .font(.system(size: 10))
@@ -120,6 +133,39 @@ struct Sub2APIPoolSection: View {
             .font(.system(size: 10))
             .foregroundStyle(.tertiary)
         }
+    }
+
+    private func capacityConfigurationPrompt(_ count: Int) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.circle.fill")
+                .foregroundStyle(.orange)
+            Text(unconfiguredProMessage(count))
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Button(action: onConfigure) {
+                Label(state.text(.configureAccountCapacity), systemImage: "slider.horizontal.3")
+                    .labelStyle(.titleAndIcon)
+            }
+            .buttonStyle(.borderless)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(.orange)
+            .fixedSize()
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 7))
+        .overlay {
+            RoundedRectangle(cornerRadius: 7)
+                .stroke(.orange.opacity(0.22), lineWidth: 0.5)
+        }
+    }
+
+    private func unconfiguredProMessage(_ count: Int) -> String {
+        state.language == .simplifiedChinese
+            ? "发现 \(count) 个新的 Pro 账号，请选择额度类型"
+            : "\(count) new Pro account\(count == 1 ? "" : "s") need a capacity type"
     }
 
     private func availableAccounts(
@@ -158,7 +204,6 @@ struct Sub2APIPoolSection: View {
     private func poolCapacity(
         _ snapshot: Sub2APIPoolSnapshot
     ) -> some View {
-        let value = snapshot.effectiveCapacity
         let hasCapacity = snapshot.totalCapacityAccounts > 0
         return VStack(alignment: .leading, spacing: 7) {
             Text(state.text(.windowBalances))
@@ -171,16 +216,15 @@ struct Sub2APIPoolSection: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
             ProgressView(
-                value: value.remainingEquivalentAccounts,
-                total: Double(max(1, snapshot.totalCapacityAccounts))
+                value: snapshot.displayedRemainingFraction ?? 0
             )
                 .tint(.teal)
-            Text(poolWindowCapacityText(value))
+            Text(poolWindowCapacityText(snapshot))
                 .font(.system(size: 10, design: .monospaced))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-            if let limitingText = limitingText(value) {
+            if let limitingText = limitingText(snapshot) {
                 Text(limitingText)
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.orange)
@@ -260,15 +304,20 @@ struct Sub2APIPoolSection: View {
     }
 
     private func poolCapacityText(_ snapshot: Sub2APIPoolSnapshot) -> String {
-        guard snapshot.totalCapacityAccounts > 0 else { return "--" }
-        return "\(capacityPercentText(snapshot.effectiveCapacity.remainingEquivalentAccounts))"
-            + " / \(capacityPercentText(Double(snapshot.totalCapacityAccounts)))"
+        guard let remaining = snapshot.displayedRemainingFraction else { return "--" }
+        return "\(capacityPercentText(remaining)) / \(capacityPercentText(1))"
     }
 
-    private func poolWindowCapacityText(_ value: Sub2APIEffectiveCapacitySnapshot) -> String {
-        guard value.observedAccounts > 0 else { return state.text(.noWindowData) }
-        return "5h \(capacityPercentText(value.fiveHourRemainingEquivalentAccounts))"
-            + " · 7d \(capacityPercentText(value.sevenDayRemainingEquivalentAccounts))"
+    private func poolWindowCapacityText(_ snapshot: Sub2APIPoolSnapshot) -> String {
+        guard snapshot.unconfiguredCapacityAccounts == 0 else {
+            return "\(state.text(.unconfiguredCapacity)) \(snapshot.unconfiguredCapacityAccounts)"
+        }
+        let value = snapshot.effectiveCapacity
+        guard value.totalCapacityWeight > 0 else { return state.text(.noWindowData) }
+        let fiveHour = value.fiveHourRemainingEquivalentAccounts / value.totalCapacityWeight
+        let sevenDay = value.sevenDayRemainingEquivalentAccounts / value.totalCapacityWeight
+        return "5h \(capacityPercentText(fiveHour))"
+            + " · 7d \(capacityPercentText(sevenDay))"
     }
 
     private func capacityPercentText(_ equivalentAccounts: Double) -> String {
@@ -288,8 +337,10 @@ struct Sub2APIPoolSection: View {
             : "\(count) accounts window-limited"
     }
 
-    private func limitingText(_ value: Sub2APIEffectiveCapacitySnapshot) -> String? {
-        guard value.observedAccounts > 0 else { return nil }
+    private func limitingText(_ snapshot: Sub2APIPoolSnapshot) -> String? {
+        guard snapshot.unconfiguredCapacityAccounts == 0 else { return nil }
+        let value = snapshot.effectiveCapacity
+        guard value.totalCapacityWeight > 0 else { return nil }
         let fiveHour = value.fiveHourRemainingEquivalentAccounts
         let sevenDay = value.sevenDayRemainingEquivalentAccounts
         if abs(fiveHour - sevenDay) < 0.000_1 {

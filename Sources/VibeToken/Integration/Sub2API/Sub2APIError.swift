@@ -13,6 +13,7 @@ enum Sub2APIError: LocalizedError, Equatable, Sendable {
     case serverUnavailable
     case tooManyAccounts
     case secureStorageFailed
+    case capacityConfigurationIncomplete
     case unexpectedResponse
 
     var errorDescription: String? {
@@ -34,6 +35,7 @@ enum Sub2APIError: LocalizedError, Equatable, Sendable {
             case .serverUnavailable: "The relay server is unavailable"
             case .tooManyAccounts: "The account pool exceeds the safe read limit"
             case .secureStorageFailed: "Login state could not be saved locally"
+            case .capacityConfigurationIncomplete: "Choose a capacity type for every Pro account"
             case .unexpectedResponse: "The relay server returned unrecognized data"
             }
         }
@@ -50,6 +52,7 @@ enum Sub2APIError: LocalizedError, Equatable, Sendable {
         case .serverUnavailable: "暂时无法连接中转服务"
         case .tooManyAccounts: "账号数量超过安全读取上限"
         case .secureStorageFailed: "无法保存本地登录状态"
+        case .capacityConfigurationIncomplete: "请为每个 Pro 账号选择额度类型"
         case .unexpectedResponse: "中转服务返回了无法识别的数据"
         }
     }

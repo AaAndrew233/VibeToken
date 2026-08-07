@@ -522,7 +522,7 @@ struct MenuBarView: View {
             informationRow(
                 icon: "terminal.fill",
                 iconColor: .blue,
-                title: "Codex",
+                title: state.text(.dataSources),
                 subtitle: state.sourceStatus == .online ? state.sessionCountText() : sourceSubtitle,
                 value: TokenFormatter.string(snapshot.totalTokens, locale: tokenLocale)
             )

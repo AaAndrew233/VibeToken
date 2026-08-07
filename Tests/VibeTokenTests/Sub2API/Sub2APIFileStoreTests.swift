@@ -50,6 +50,32 @@ final class Sub2APIFileStoreTests: XCTestCase {
         XCTAssertNil(try store.load())
     }
 
+    func testCapacityConfigurationPersistsAcrossStoreInstances() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let configuration = Sub2APIAccountCapacityConfiguration(
+            selectionsByServer: [
+                "https://relay.example.com/api/v1": [
+                    Sub2APIAccountCapacitySelection(accountID: 7, tier: .pro20),
+                    Sub2APIAccountCapacitySelection(accountID: 8, tier: .pro5),
+                    Sub2APIAccountCapacitySelection(accountID: 9, tier: .pro10)
+                ]
+            ]
+        )
+
+        try FileSub2APICapacityConfigurationStore(supportDirectory: directory)
+            .save(configuration)
+
+        XCTAssertEqual(
+            try FileSub2APICapacityConfigurationStore(supportDirectory: directory).load(),
+            configuration
+        )
+        XCTAssertEqual(
+            try permissions(at: directory.appendingPathComponent("sub2api-capacity-config.json")),
+            0o600
+        )
+    }
+
     func testRejectsSymbolicLinkOversizedAndCorruptedFiles() throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

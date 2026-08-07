@@ -137,7 +137,4 @@ struct CodexParseBatch: Equatable, Sendable {
     }
 }
 
-struct CodexWatchTargets: Sendable {
-    let fileURLs: [URL]
-    let directoryURLs: [URL]
-}
+typealias CodexWatchTargets = UsageWatchTargets

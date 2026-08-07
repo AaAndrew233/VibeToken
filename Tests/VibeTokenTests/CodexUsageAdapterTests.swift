@@ -43,7 +43,68 @@ final class CodexUsageAdapterTests: XCTestCase {
         XCTAssertEqual(aggregate.modelSnapshots.map(\.model), ["gpt-5.6-sol"])
     }
 
-    private func configuration(codexHome: URL) -> AppConfiguration {
+    func testLegacySavedCodexHomeIsScannedWithoutReplacingAutomaticDefault() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let codexHome = root.appendingPathComponent("custom-codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let suiteName = "VibeTokenTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(codexHome.path, forKey: AppConfiguration.codexHomeOverrideKey)
+
+        let configuration = AppConfiguration.live(environment: [:], userDefaults: defaults)
+        XCTAssertEqual(
+            configuration.codexHome.path,
+            FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".codex", isDirectory: true).path
+        )
+        XCTAssertTrue(configuration.additionalCodexHomes.contains {
+            $0.standardizedFileURL.path == codexHome.standardizedFileURL.path
+        })
+    }
+
+    func testAutomaticallyScansAdditionalProfileAndArchivedSessions() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let missingHome = root.appendingPathComponent("missing", isDirectory: true)
+        let availableHome = root.appendingPathComponent(".codex-work", isDirectory: true)
+        let archiveDirectory = availableHome.appendingPathComponent(
+            "archived_sessions",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: archiveDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let now = Date()
+        try writeSession(
+            at: archiveDirectory.appendingPathComponent("archived-rollout.jsonl"),
+            timestamp: now,
+            total: 88
+        )
+
+        let adapter = CodexUsageAdapter(
+            configuration: configuration(
+                codexHome: missingHome,
+                additionalCodexHomes: [availableHome]
+            ),
+            repository: UsageRepository(database: try VibeTokenDatabase.inMemory())
+        )
+        let discovered = await adapter.discover()
+        XCTAssertTrue(discovered)
+        try await adapter.ingestRecentSessions(now: now)
+        let aggregate = try await adapter.aggregate(range: .hours24, now: now)
+        XCTAssertEqual(aggregate.snapshot?.totalTokens, 88)
+    }
+
+    private func configuration(
+        codexHome: URL,
+        additionalCodexHomes: [URL] = []
+    ) -> AppConfiguration {
         AppConfiguration(
             codexHome: codexHome,
             applicationSupportDirectory: codexHome,
@@ -53,7 +114,10 @@ final class CodexUsageAdapterTests: XCTestCase {
             ingestionChunkBytes: 64 * 1_024,
             maximumJSONLineBytes: 1_024 * 1_024,
             historyLookbackDays: 30,
-            maximumWatchedSessionFiles: 64
+            maximumWatchedSessionFiles: 64,
+            maximumUsageSourceFiles: 1_000,
+            maximumStructuredUsageFileBytes: 1_024 * 1_024,
+            additionalCodexHomes: additionalCodexHomes
         )
     }
 

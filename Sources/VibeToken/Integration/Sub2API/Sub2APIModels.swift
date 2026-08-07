@@ -73,6 +73,7 @@ struct Sub2APIPaginatedAccounts: Decodable, Sendable {
 
 struct Sub2APIAccountPayload: Decodable, Sendable {
     let id: Int64
+    let name: String?
     let status: String
     let schedulable: Bool
     let parentAccountID: Int64?
@@ -84,14 +85,17 @@ struct Sub2APIAccountPayload: Decodable, Sendable {
 
     struct Credentials: Decodable, Sendable {
         let planType: String?
+        let name: String?
 
         enum CodingKeys: String, CodingKey {
             case planType = "plan_type"
+            case name
         }
 
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             planType = container.flexibleString(forKey: .planType)
+            name = container.flexibleString(forKey: .name)
         }
     }
 
@@ -145,7 +149,7 @@ struct Sub2APIAccountPayload: Decodable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, status, schedulable, credentials, extra
+        case id, name, status, schedulable, credentials, extra
         case rateLimitResetAt = "rate_limit_reset_at"
         case overloadUntil = "overload_until"
         case tempUnschedulableUntil = "temp_unschedulable_until"
@@ -155,6 +159,7 @@ struct Sub2APIAccountPayload: Decodable, Sendable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(Int64.self, forKey: .id)
+        name = container.flexibleString(forKey: .name)
         status = try container.decode(String.self, forKey: .status)
         schedulable = try container.decode(Bool.self, forKey: .schedulable)
         parentAccountID = container.flexibleInt64(forKey: .parentAccountID)
@@ -165,7 +170,10 @@ struct Sub2APIAccountPayload: Decodable, Sendable {
         tempUnschedulableUntil = container.flexibleString(forKey: .tempUnschedulableUntil)
     }
 
-    func snapshot(now: Date) -> Sub2APIAccountSnapshot {
+    func snapshot(
+        now: Date,
+        capacityTier: Sub2APICapacityTier? = nil
+    ) -> Sub2APIAccountSnapshot {
         let fiveHourFallback = extra?.legacyWindow(minutes: 300)
         let sevenDayFallback = extra?.legacyWindow(minutes: 10_080)
         return Sub2APIAccountSnapshot(
@@ -174,6 +182,7 @@ struct Sub2APIAccountPayload: Decodable, Sendable {
             schedulable: schedulable,
             parentAccountID: parentAccountID,
             plan: Self.normalizedPlan(credentials?.planType),
+            capacityTier: resolvedCapacityTier(configuredTier: capacityTier),
             fiveHourUsedPercent: extra?.fiveHourUsedPercent ?? fiveHourFallback?.usedPercent,
             fiveHourResetAt: Self.resolveResetAt(
                 absolute: extra?.fiveHourResetAt,
@@ -191,6 +200,30 @@ struct Sub2APIAccountPayload: Decodable, Sendable {
             overloadUntil: overloadUntil.flatMap(Self.parseDate),
             tempUnschedulableUntil: tempUnschedulableUntil.flatMap(Self.parseDate)
         )
+    }
+
+    var capacityDisplayName: String? {
+        let value = name ?? credentials?.name
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    var detectedPlan: String {
+        Self.normalizedPlan(credentials?.planType)
+    }
+
+    var requiresManualCapacityTier: Bool {
+        detectedPlan.caseInsensitiveCompare("Pro") == .orderedSame
+    }
+
+    func resolvedCapacityTier(
+        configuredTier: Sub2APICapacityTier?
+    ) -> Sub2APICapacityTier? {
+        if requiresManualCapacityTier {
+            guard configuredTier?.isProCapacity == true else { return nil }
+            return configuredTier
+        }
+        return .plus
     }
 
     private static func normalizedPlan(_ value: String?) -> String {

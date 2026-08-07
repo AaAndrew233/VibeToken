@@ -6,5 +6,13 @@ protocol UsageSourceAdapter: Sendable {
     var accuracy: UsageAccuracy { get }
 
     func discover() async -> Bool
-    func currentSnapshot() async throws -> TokenUsageSnapshot?
+    func ingestRecentSessions(now: Date) async throws
+    func watchTargets(now: Date) async throws -> UsageWatchTargets
+}
+
+struct UsageWatchTargets: Sendable {
+    let fileURLs: [URL]
+    let directoryURLs: [URL]
+
+    static let empty = UsageWatchTargets(fileURLs: [], directoryURLs: [])
 }

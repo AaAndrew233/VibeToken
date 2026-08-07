@@ -3,11 +3,24 @@ import Foundation
 struct Sub2APIWindowSnapshot: Equatable, Sendable {
     let observedAccounts: Int
     let remainingEquivalentAccounts: Double
+    let totalCapacityWeight: Double
     let nextResetAt: Date?
 
+    init(
+        observedAccounts: Int,
+        remainingEquivalentAccounts: Double,
+        totalCapacityWeight: Double? = nil,
+        nextResetAt: Date?
+    ) {
+        self.observedAccounts = observedAccounts
+        self.remainingEquivalentAccounts = remainingEquivalentAccounts
+        self.totalCapacityWeight = totalCapacityWeight ?? Double(observedAccounts)
+        self.nextResetAt = nextResetAt
+    }
+
     var remainingFraction: Double? {
-        guard observedAccounts > 0 else { return nil }
-        return min(1, max(0, remainingEquivalentAccounts / Double(observedAccounts)))
+        guard totalCapacityWeight > 0 else { return nil }
+        return min(1, max(0, remainingEquivalentAccounts / totalCapacityWeight))
     }
 }
 
@@ -30,10 +43,38 @@ struct Sub2APIEffectiveCapacitySnapshot: Equatable, Sendable {
     let availableFiveHourRemainingFraction: Double?
     let availableSevenDayRemainingFraction: Double?
     let nextRecoveryAt: Date?
+    let totalCapacityWeight: Double
+    let availableCapacityWeight: Double
+
+    init(
+        observedAccounts: Int,
+        availableAccounts: Int,
+        windowLimitedAccounts: Int,
+        remainingEquivalentAccounts: Double,
+        fiveHourRemainingEquivalentAccounts: Double,
+        sevenDayRemainingEquivalentAccounts: Double,
+        availableFiveHourRemainingFraction: Double?,
+        availableSevenDayRemainingFraction: Double?,
+        nextRecoveryAt: Date?,
+        totalCapacityWeight: Double? = nil,
+        availableCapacityWeight: Double? = nil
+    ) {
+        self.observedAccounts = observedAccounts
+        self.availableAccounts = availableAccounts
+        self.windowLimitedAccounts = windowLimitedAccounts
+        self.remainingEquivalentAccounts = remainingEquivalentAccounts
+        self.fiveHourRemainingEquivalentAccounts = fiveHourRemainingEquivalentAccounts
+        self.sevenDayRemainingEquivalentAccounts = sevenDayRemainingEquivalentAccounts
+        self.availableFiveHourRemainingFraction = availableFiveHourRemainingFraction
+        self.availableSevenDayRemainingFraction = availableSevenDayRemainingFraction
+        self.nextRecoveryAt = nextRecoveryAt
+        self.totalCapacityWeight = totalCapacityWeight ?? Double(observedAccounts)
+        self.availableCapacityWeight = availableCapacityWeight ?? Double(availableAccounts)
+    }
 
     var poolRemainingFraction: Double? {
-        guard observedAccounts > 0 else { return nil }
-        return min(1, max(0, remainingEquivalentAccounts / Double(observedAccounts)))
+        guard totalCapacityWeight > 0 else { return nil }
+        return min(1, max(0, remainingEquivalentAccounts / totalCapacityWeight))
     }
 
     var availableAccountFraction: Double? {
@@ -42,8 +83,8 @@ struct Sub2APIEffectiveCapacitySnapshot: Equatable, Sendable {
     }
 
     var availableAccountRemainingFraction: Double? {
-        guard availableAccounts > 0 else { return nil }
-        return min(1, max(0, remainingEquivalentAccounts / Double(availableAccounts)))
+        guard availableCapacityWeight > 0 else { return nil }
+        return min(1, max(0, remainingEquivalentAccounts / availableCapacityWeight))
     }
 
     var totalAvailableRemainingFraction: Double? {
@@ -52,11 +93,11 @@ struct Sub2APIEffectiveCapacitySnapshot: Equatable, Sendable {
     }
 
     var totalAvailableFiveHourRemainingFraction: Double? {
-        availableFiveHourRemainingFraction.map { $0 * Double(availableAccounts) }
+        availableFiveHourRemainingFraction.map { $0 * availableCapacityWeight }
     }
 
     var totalAvailableSevenDayRemainingFraction: Double? {
-        availableSevenDayRemainingFraction.map { $0 * Double(availableAccounts) }
+        availableSevenDayRemainingFraction.map { $0 * availableCapacityWeight }
     }
 }
 
@@ -67,6 +108,7 @@ struct Sub2APIPoolSnapshot: Equatable, Sendable {
     let unavailableAccounts: Int
     let missingWindowAccounts: Int
     let staleWindowAccounts: Int
+    let unconfiguredCapacityAccounts: Int
     let effectiveCapacity: Sub2APIEffectiveCapacitySnapshot
     let fiveHour: Sub2APIWindowSnapshot
     let sevenDay: Sub2APIWindowSnapshot
@@ -74,7 +116,11 @@ struct Sub2APIPoolSnapshot: Equatable, Sendable {
     let fetchedAt: Date
 
     var totalCapacityAccounts: Int {
-        eligibleAccounts
+        effectiveCapacity.observedAccounts
+    }
+
+    var totalCapacityWeight: Double {
+        effectiveCapacity.totalCapacityWeight
     }
 
     var displayedAvailableAccountFraction: Double? {
@@ -83,11 +129,12 @@ struct Sub2APIPoolSnapshot: Equatable, Sendable {
     }
 
     var displayedRemainingFraction: Double? {
-        guard totalCapacityAccounts > 0 else { return nil }
-        return min(
-            1,
-            max(0, effectiveCapacity.remainingEquivalentAccounts / Double(totalCapacityAccounts))
-        )
+        guard unconfiguredCapacityAccounts == 0 else { return nil }
+        return effectiveCapacity.poolRemainingFraction
+    }
+
+    var requiresCapacityConfiguration: Bool {
+        unconfiguredCapacityAccounts > 0
     }
 }
 
@@ -97,6 +144,7 @@ struct Sub2APIAccountSnapshot: Equatable, Sendable {
     let schedulable: Bool
     let parentAccountID: Int64?
     let plan: String
+    let capacityTier: Sub2APICapacityTier?
     let fiveHourUsedPercent: Double?
     let fiveHourResetAt: Date?
     let sevenDayUsedPercent: Double?
@@ -119,6 +167,9 @@ enum Sub2APIPoolAggregator {
         ).values
         let physicalAccounts = uniqueAccounts.filter { $0.parentAccountID == nil }
         let activeAccounts = physicalAccounts.filter { $0.status == "active" }
+        let unconfiguredCapacityAccounts = activeAccounts.filter {
+            $0.capacityTier == nil
+        }.count
         let runtimeRateLimitedIDs = Set(
             activeAccounts.filter { $0.hasActiveRateLimit(at: fetchedAt) }.map(\.id)
         )
@@ -130,14 +181,15 @@ enum Sub2APIPoolAggregator {
                     && account.hasExhaustedWindow
             }.map(\.id)
         )
-        let eligible = activeAccounts.filter { account in
+        let operational = activeAccounts.filter { account in
             if runtimeRateLimitedIDs.contains(account.id) { return true }
             return account.schedulable && !account.isTemporarilyUnavailable(at: fetchedAt)
         }
-        let unavailable = physicalAccounts.count - eligible.count
+        let operationalIDs = Set(operational.map(\.id))
+        let unavailable = physicalAccounts.count - operational.count
         let staleCutoff = fetchedAt.addingTimeInterval(-staleAfter)
 
-        let nonLimited = eligible.filter { !windowLimitedIDs.contains($0.id) }
+        let nonLimited = operational.filter { !windowLimitedIDs.contains($0.id) }
         let missing = nonLimited.filter {
             $0.fiveHourUsedPercent == nil || $0.sevenDayUsedPercent == nil
         }
@@ -151,19 +203,29 @@ enum Sub2APIPoolAggregator {
             return updatedAt < staleCutoff
         }
         let staleIDs = Set(stale.map(\.id))
-        let assessable = eligible.filter {
-            windowLimitedIDs.contains($0.id)
-                || (!staleIDs.contains($0.id)
-                    && !missingIDs.contains($0.id))
-        }
+        let unavailableCapacityIDs = Set(activeAccounts.map(\.id)).subtracting(operationalIDs)
+        let zeroContributionIDs = windowLimitedIDs
+            .union(unavailableCapacityIDs)
+            .union(staleIDs)
+            .union(missingIDs)
 
-        let grouped = Dictionary(grouping: eligible, by: \.plan)
+        let grouped = Dictionary(grouping: activeAccounts, by: \.plan)
         let plans = grouped.map { plan, planAccounts in
             Sub2APIPlanSnapshot(
                 plan: plan,
                 accountCount: planAccounts.count,
-                fiveHour: summarize(planAccounts, window: .fiveHour),
-                sevenDay: summarize(planAccounts, window: .sevenDay)
+                fiveHour: summarize(
+                    planAccounts,
+                    window: .fiveHour,
+                    zeroContributionIDs: zeroContributionIDs,
+                    fetchedAt: fetchedAt
+                ),
+                sevenDay: summarize(
+                    planAccounts,
+                    window: .sevenDay,
+                    zeroContributionIDs: zeroContributionIDs,
+                    fetchedAt: fetchedAt
+                )
             )
         }
         .sorted {
@@ -173,17 +235,30 @@ enum Sub2APIPoolAggregator {
 
         return Sub2APIPoolSnapshot(
             totalAccounts: physicalAccounts.count,
-            eligibleAccounts: eligible.count,
+            eligibleAccounts: operational.count,
             excludedShadowAccounts: uniqueAccounts.count - physicalAccounts.count,
             unavailableAccounts: unavailable,
             missingWindowAccounts: missing.count,
             staleWindowAccounts: stale.count,
+            unconfiguredCapacityAccounts: unconfiguredCapacityAccounts,
             effectiveCapacity: effectiveCapacity(
-                assessable,
-                forcedWindowLimitedIDs: windowLimitedIDs
+                activeAccounts,
+                zeroContributionIDs: zeroContributionIDs,
+                windowLimitedIDs: windowLimitedIDs,
+                fetchedAt: fetchedAt
             ),
-            fiveHour: summarize(eligible, window: .fiveHour),
-            sevenDay: summarize(eligible, window: .sevenDay),
+            fiveHour: summarize(
+                activeAccounts,
+                window: .fiveHour,
+                zeroContributionIDs: zeroContributionIDs,
+                fetchedAt: fetchedAt
+            ),
+            sevenDay: summarize(
+                activeAccounts,
+                window: .sevenDay,
+                zeroContributionIDs: zeroContributionIDs,
+                fetchedAt: fetchedAt
+            ),
             plans: plans,
             fetchedAt: fetchedAt
         )
@@ -191,36 +266,43 @@ enum Sub2APIPoolAggregator {
 
     private static func effectiveCapacity(
         _ accounts: [Sub2APIAccountSnapshot],
-        forcedWindowLimitedIDs: Set<Int64>
+        zeroContributionIDs: Set<Int64>,
+        windowLimitedIDs: Set<Int64>,
+        fetchedAt: Date
     ) -> Sub2APIEffectiveCapacitySnapshot {
         let values = accounts.compactMap { account -> EffectiveAccountValue? in
-            let forcedWindowLimited = forcedWindowLimitedIDs.contains(account.id)
+            let isUnavailable = zeroContributionIDs.contains(account.id)
             guard let fiveHourUsed = account.fiveHourUsedPercent,
                   let sevenDayUsed = account.sevenDayUsedPercent else {
-                guard forcedWindowLimited else { return nil }
                 return EffectiveAccountValue(
                     fiveHourRemaining: 0,
                     fiveHourResetAt: account.fiveHourResetAt,
                     sevenDayRemaining: 0,
                     sevenDayResetAt: account.sevenDayResetAt,
                     rateLimitResetAt: account.rateLimitResetAt,
-                    isWindowLimited: true
+                    isWindowLimited: windowLimitedIDs.contains(account.id),
+                    isAvailable: false,
+                    capacityWeight: account.capacityTier?.multiplier ?? 0
                 )
             }
-            let fiveHourRemaining = remainingFraction(usedPercent: fiveHourUsed)
-            let sevenDayRemaining = remainingFraction(usedPercent: sevenDayUsed)
+            let fiveHourRemaining = isUnavailable
+                ? 0
+                : remainingFraction(usedPercent: fiveHourUsed)
+            let sevenDayRemaining = isUnavailable
+                ? 0
+                : remainingFraction(usedPercent: sevenDayUsed)
             return EffectiveAccountValue(
                 fiveHourRemaining: fiveHourRemaining,
                 fiveHourResetAt: account.fiveHourResetAt,
                 sevenDayRemaining: sevenDayRemaining,
                 sevenDayResetAt: account.sevenDayResetAt,
                 rateLimitResetAt: account.rateLimitResetAt,
-                isWindowLimited: forcedWindowLimited
-                    || fiveHourRemaining <= 0
-                    || sevenDayRemaining <= 0
+                isWindowLimited: windowLimitedIDs.contains(account.id),
+                isAvailable: !isUnavailable,
+                capacityWeight: account.capacityTier?.multiplier ?? 0
             )
         }
-        let availableValues = values.filter { !$0.isWindowLimited }
+        let availableValues = values.filter(\.isAvailable)
         let windowLimitedValues = values.filter(\.isWindowLimited)
         let nextRecoveryAt = values.flatMap { value -> [Date] in
             var resetDates: [Date] = []
@@ -234,37 +316,43 @@ enum Sub2APIPoolAggregator {
                 resetDates.append(resetAt)
             }
             return resetDates
-        }.min()
+        }
+        .filter { $0 > fetchedAt }
+        .min()
         let fiveHourRemainingEquivalentAccounts = values.reduce(0) {
-            $0 + $1.fiveHourRemaining
+            $0 + $1.fiveHourRemaining * $1.capacityWeight
         }
         let sevenDayRemainingEquivalentAccounts = values.reduce(0) {
-            $0 + $1.sevenDayRemaining
+            $0 + $1.sevenDayRemaining * $1.capacityWeight
         }
+        let totalCapacityWeight = values.reduce(0) { $0 + $1.capacityWeight }
+        let availableCapacityWeight = availableValues.reduce(0) { $0 + $1.capacityWeight }
         return Sub2APIEffectiveCapacitySnapshot(
             observedAccounts: values.count,
             availableAccounts: availableValues.count,
             windowLimitedAccounts: windowLimitedValues.count,
             remainingEquivalentAccounts: values.reduce(0) {
-                $0 + ($1.isWindowLimited
-                    ? 0
-                    : min($1.fiveHourRemaining, $1.sevenDayRemaining))
+                $0 + min($1.fiveHourRemaining, $1.sevenDayRemaining) * $1.capacityWeight
             },
             fiveHourRemainingEquivalentAccounts: fiveHourRemainingEquivalentAccounts,
             sevenDayRemainingEquivalentAccounts: sevenDayRemainingEquivalentAccounts,
             availableFiveHourRemainingFraction: average(
-                availableValues.map(\.fiveHourRemaining)
+                availableValues.map { ($0.fiveHourRemaining, $0.capacityWeight) }
             ),
             availableSevenDayRemainingFraction: average(
-                availableValues.map(\.sevenDayRemaining)
+                availableValues.map { ($0.sevenDayRemaining, $0.capacityWeight) }
             ),
-            nextRecoveryAt: nextRecoveryAt
+            nextRecoveryAt: nextRecoveryAt,
+            totalCapacityWeight: totalCapacityWeight,
+            availableCapacityWeight: availableCapacityWeight
         )
     }
 
-    private static func average(_ values: [Double]) -> Double? {
+    private static func average(_ values: [(value: Double, weight: Double)]) -> Double? {
         guard !values.isEmpty else { return nil }
-        return values.reduce(0, +) / Double(values.count)
+        let totalWeight = values.reduce(0) { $0 + $1.weight }
+        guard totalWeight > 0 else { return nil }
+        return values.reduce(0) { $0 + $1.value * $1.weight } / totalWeight
     }
 
     private static func remainingFraction(usedPercent: Double) -> Double {
@@ -278,23 +366,39 @@ enum Sub2APIPoolAggregator {
 
     private static func summarize(
         _ accounts: [Sub2APIAccountSnapshot],
-        window: Window
+        window: Window,
+        zeroContributionIDs: Set<Int64>,
+        fetchedAt: Date
     ) -> Sub2APIWindowSnapshot {
-        let values: [(usedPercent: Double, resetAt: Date?)] = accounts.compactMap { account in
+        let values: [(remaining: Double, resetAt: Date?, weight: Double)] = accounts.map { account in
+            let remaining: Double
+            let resetAt: Date?
             switch window {
             case .fiveHour:
-                account.fiveHourUsedPercent.map { ($0, account.fiveHourResetAt) }
+                remaining = account.fiveHourUsedPercent.map {
+                    remainingFraction(usedPercent: $0)
+                } ?? 0
+                resetAt = account.fiveHourResetAt
             case .sevenDay:
-                account.sevenDayUsedPercent.map { ($0, account.sevenDayResetAt) }
+                remaining = account.sevenDayUsedPercent.map {
+                    remainingFraction(usedPercent: $0)
+                } ?? 0
+                resetAt = account.sevenDayResetAt
             }
+            return (
+                zeroContributionIDs.contains(account.id) ? 0 : remaining,
+                resetAt,
+                account.capacityTier?.multiplier ?? 0
+            )
         }
         let remaining = values.reduce(0.0) { partial, value in
-            partial + remainingFraction(usedPercent: value.usedPercent)
+            partial + value.remaining * value.weight
         }
         return Sub2APIWindowSnapshot(
             observedAccounts: values.count,
             remainingEquivalentAccounts: remaining,
-            nextResetAt: values.compactMap(\.resetAt).min()
+            totalCapacityWeight: values.reduce(0) { $0 + $1.weight },
+            nextResetAt: values.compactMap(\.resetAt).filter { $0 > fetchedAt }.min()
         )
     }
 
@@ -305,6 +409,8 @@ enum Sub2APIPoolAggregator {
         let sevenDayResetAt: Date?
         let rateLimitResetAt: Date?
         let isWindowLimited: Bool
+        let isAvailable: Bool
+        let capacityWeight: Double
     }
 }
 

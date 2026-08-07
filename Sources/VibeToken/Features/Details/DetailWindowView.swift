@@ -171,7 +171,7 @@ private struct OverviewView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 0) {
-                    informationRow(state.text(.source), value: "Codex")
+                    informationRow(state.text(.source), value: state.sourceCountText())
                     Divider()
                     informationRow(state.text(.sessionCount), value: state.sessionCountText())
                     Divider()
@@ -530,53 +530,248 @@ private struct DistributionCard: View {
 private struct SourcesView: View {
     @Bindable var state: AppState
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            Text(state.text(.dataSources))
-                .font(.system(size: 28, weight: .bold))
+    private let sources = [
+        UsageSourceDescriptor(
+            id: "codex",
+            name: "Codex",
+            path: "~/.codex/{sessions,archived_sessions}",
+            icon: "terminal.fill",
+            color: Color.blue
+        ),
+        UsageSourceDescriptor(
+            id: "claude-code",
+            name: "Claude Code",
+            path: "~/.claude/{projects,transcripts}",
+            icon: "bubble.left.and.text.bubble.right.fill",
+            color: Color.orange
+        ),
+        UsageSourceDescriptor(
+            id: "gemini-cli",
+            name: "Gemini CLI",
+            path: "~/.gemini/tmp/*/chats",
+            icon: "sparkles",
+            color: Color.purple
+        ),
+        UsageSourceDescriptor(
+            id: "opencode",
+            name: "OpenCode",
+            path: "~/.local/share/opencode",
+            icon: "chevron.left.forwardslash.chevron.right",
+            color: Color.teal
+        ),
+        UsageSourceDescriptor(
+            id: "copilot-cli",
+            name: "GitHub Copilot CLI",
+            path: "~/.copilot/session-state",
+            icon: "terminal.fill",
+            color: Color.indigo
+        ),
+        UsageSourceDescriptor(
+            id: "cursor",
+            name: "Cursor",
+            path: "state.vscdb → cursor.com",
+            icon: "cursorarrow.rays",
+            color: Color.green
+        ),
+        UsageSourceDescriptor(
+            id: "cline",
+            name: "Cline",
+            path: "~/.cline + VS Code hosts",
+            icon: "square.stack.3d.up.fill",
+            color: Color.pink
+        ),
+        UsageSourceDescriptor(
+            id: "roo-code",
+            name: "Roo Code",
+            path: "VS Code hosts / globalStorage",
+            icon: "shippingbox.fill",
+            color: Color.brown
+        ),
+        UsageSourceDescriptor(
+            id: "kiro",
+            name: "Kiro",
+            path: "~/.kiro/sessions/cli",
+            icon: "wand.and.stars",
+            color: Color.cyan,
+            accuracy: .estimated
+        ),
+        UsageSourceDescriptor(
+            id: "grok",
+            name: "Grok",
+            path: "~/.grok/sessions",
+            icon: "bolt.fill",
+            color: Color.primary
+        ),
+        UsageSourceDescriptor(
+            id: "dimagent",
+            name: "DimAgent",
+            path: "~/.dimcode/v2/dimcode.sqlite",
+            icon: "square.stack.3d.down.right.fill",
+            color: Color.mint
+        ),
+        UsageSourceDescriptor(
+            id: "openclaw",
+            name: "OpenClaw",
+            path: "~/.openclaw*/agents",
+            icon: "point.3.connected.trianglepath.dotted",
+            color: Color.red
+        ),
+        UsageSourceDescriptor(
+            id: "pi-coding-agent",
+            name: "pi",
+            path: "~/.pi/agent/sessions",
+            icon: "function",
+            color: Color.yellow
+        ),
+        UsageSourceDescriptor(
+            id: "qwen-code",
+            name: "Qwen Code",
+            path: "~/.qwen/tmp/*/chats",
+            icon: "q.circle.fill",
+            color: Color.blue
+        ),
+        UsageSourceDescriptor(
+            id: "kimi-code",
+            name: "Kimi Code",
+            path: "~/.kimi-code + ~/.kimi",
+            icon: "moon.stars.fill",
+            color: Color.indigo
+        ),
+        UsageSourceDescriptor(
+            id: "mimocode",
+            name: "MiMoCode",
+            path: "~/.local/share/mimocode",
+            icon: "m.circle.fill",
+            color: Color.orange
+        ),
+        UsageSourceDescriptor(
+            id: "amp",
+            name: "Amp",
+            path: "~/.local/share/amp/threads",
+            icon: "waveform.path.ecg",
+            color: Color.pink
+        ),
+        UsageSourceDescriptor(
+            id: "droid",
+            name: "Droid",
+            path: "~/.factory/sessions",
+            icon: "cpu.fill",
+            color: Color.green
+        ),
+        UsageSourceDescriptor(
+            id: "hermes",
+            name: "Hermes",
+            path: "~/.hermes/{state,profiles}.db",
+            icon: "paperplane.fill",
+            color: Color.teal
+        ),
+        UsageSourceDescriptor(
+            id: "trae-cli",
+            name: "Trae CLI",
+            path: "~/Library/Caches/trae-cli/sessions",
+            icon: "terminal.fill",
+            color: Color.purple
+        ),
+        UsageSourceDescriptor(
+            id: "antigravity",
+            name: "Antigravity",
+            path: "~/.gemini/antigravity*",
+            icon: "sparkle.magnifyingglass",
+            color: Color.cyan
+        ),
+        UsageSourceDescriptor(
+            id: "zcode",
+            name: "ZCode",
+            path: "~/.zcode/cli/db/db.sqlite",
+            icon: "z.circle.fill",
+            color: Color.brown
+        )
+    ]
 
-            HStack(spacing: 14) {
-                Image(systemName: "terminal.fill")
-                    .font(.system(size: 18))
-                    .foregroundStyle(.white)
-                    .frame(width: 42, height: 42)
-                    .background(.blue, in: RoundedRectangle(cornerRadius: 8))
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Codex")
-                        .font(.system(size: 15, weight: .semibold))
-                    Text("~/.codex/sessions")
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(.secondary)
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                Text(state.text(.dataSources))
+                    .font(.system(size: 28, weight: .bold))
+
+                VStack(spacing: 0) {
+                    ForEach(Array(sources.enumerated()), id: \.element.id) { index, source in
+                        sourceRow(source)
+                        if index < sources.count - 1 {
+                            Divider().padding(.leading, 70)
+                        }
+                    }
                 }
-                Spacer()
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(state.sourceStatus == .online ? .green : .orange)
-                        .frame(width: 8, height: 8)
-                    Text(sourceStatusText)
+                .background(.background, in: RoundedRectangle(cornerRadius: 8))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(.separator.opacity(0.7), lineWidth: 1)
                 }
-                .font(.system(size: 12, weight: .medium))
             }
-            .padding(18)
-            .background(.background, in: RoundedRectangle(cornerRadius: 8))
-            .overlay {
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(.separator.opacity(0.7), lineWidth: 1)
-            }
-            Spacer()
+            .padding(28)
         }
-        .padding(28)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
-    private var sourceStatusText: String {
-        switch state.sourceStatus {
-        case .online: state.text(.connected)
-        case .loading: "..."
-        case .noData: state.text(.noData)
-        case .unavailable: state.text(.sourceUnavailable)
-        case .failed(let message): message
+    private func sourceRow(_ source: UsageSourceDescriptor) -> some View {
+        let hasUsage = state.toolDistribution.contains { $0.id == source.id }
+        return HStack(spacing: 14) {
+            Image(systemName: source.icon)
+                .font(.system(size: 18))
+                .foregroundStyle(.white)
+                .frame(width: 42, height: 42)
+                .background(source.color, in: RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(source.name)
+                    .font(.system(size: 15, weight: .semibold))
+                Text(source.path)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(hasUsage ? .green : .secondary.opacity(0.5))
+                    .frame(width: 8, height: 8)
+                Text(sourceStatusText(source, hasUsage: hasUsage))
+            }
+            .font(.system(size: 12, weight: .medium))
         }
+        .padding(18)
+    }
+
+    private func sourceStatusText(
+        _ source: UsageSourceDescriptor,
+        hasUsage: Bool
+    ) -> String {
+        guard hasUsage else { return state.text(.noData) }
+        guard source.accuracy != .exact else { return state.text(.connected) }
+        return "\(state.text(.connected)) · \(state.text(.estimatedUsage))"
+    }
+}
+
+private struct UsageSourceDescriptor: Identifiable {
+    let id: String
+    let name: String
+    let path: String
+    let icon: String
+    let color: Color
+    let accuracy: UsageAccuracy
+
+    init(
+        id: String,
+        name: String,
+        path: String,
+        icon: String,
+        color: Color,
+        accuracy: UsageAccuracy = .exact
+    ) {
+        self.id = id
+        self.name = name
+        self.path = path
+        self.icon = icon
+        self.color = color
+        self.accuracy = accuracy
     }
 }
 
@@ -599,7 +794,7 @@ private struct SettingsContentView: View {
                         Text(state.refreshModeTitle(mode)).tag(mode)
                     }
                 }
-                LabeledContent(state.text(.localOnly), value: state.text(.enabled))
+                LabeledContent(state.text(.localOnly), value: state.text(.localFirst))
             }
         }
         .formStyle(.grouped)

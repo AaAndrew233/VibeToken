@@ -107,6 +107,16 @@ final class Sub2APIClientTests: XCTestCase {
         )
     }
 
+    func testDetectedProAccountHasNoDefaultCapacityTier() throws {
+        let body = #"{"id":10,"name":"Primary","status":"active","schedulable":true,"credentials":{"plan_type":"pro"}}"#
+        let payload = try JSONDecoder().decode(Sub2APIAccountPayload.self, from: Data(body.utf8))
+        let snapshot = payload.snapshot(now: Date())
+
+        XCTAssertEqual(payload.capacityDisplayName, "Primary")
+        XCTAssertEqual(payload.detectedPlan, "Pro")
+        XCTAssertNil(snapshot.capacityTier)
+    }
+
     func testFetchAccountsDeduplicatesIDsAcrossMovingPages() async throws {
         let loader = StubLoader(responses: [
             response(

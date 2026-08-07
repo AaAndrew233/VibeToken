@@ -49,6 +49,56 @@ struct UsageRepository: Sendable {
         }
     }
 
+    func checkpoint(sourceIdentifier: String, fileIdentity: String) throws -> LocalFileCheckpoint? {
+        try database.writer.read { database in
+            guard let offset = try Int64.fetchOne(
+                database,
+                sql: """
+                    SELECT byte_offset
+                    FROM ingest_checkpoints
+                    WHERE source_id = ? AND file_identity = ?
+                    """,
+                arguments: [sourceIdentifier, fileIdentity]
+            ) else {
+                return nil
+            }
+            return LocalFileCheckpoint(byteOffset: UInt64(max(0, offset)))
+        }
+    }
+
+    func persistedCounters(
+        sourceIdentifier: String,
+        sessionIdentifier: String
+    ) throws -> TokenUsageCounters {
+        let conversationID = "\(sourceIdentifier):\(sessionIdentifier)"
+        return try database.writer.read { database in
+            guard let row = try Row.fetchOne(
+                database,
+                sql: """
+                    SELECT COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                           COALESCE(SUM(cached_input_tokens), 0) AS cached_input_tokens,
+                           COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
+                           COALESCE(SUM(output_tokens), 0) AS output_tokens,
+                           COALESCE(SUM(reasoning_tokens), 0) AS reasoning_tokens,
+                           COALESCE(SUM(total_tokens), 0) AS total_tokens
+                    FROM usage_events
+                    WHERE conversation_id = ?
+                    """,
+                arguments: [conversationID]
+            ) else {
+                return .zero
+            }
+            return TokenUsageCounters(
+                inputTokens: row["input_tokens"],
+                cachedInputTokens: row["cached_input_tokens"],
+                cacheWriteTokens: row["cache_write_tokens"],
+                outputTokens: row["output_tokens"],
+                reasoningTokens: row["reasoning_tokens"],
+                totalTokens: row["total_tokens"]
+            )
+        }
+    }
+
     func persist(
         batch: CodexParseBatch,
         fileIdentity: String,
@@ -232,6 +282,192 @@ struct UsageRepository: Sendable {
         }
     }
 
+    func persistLocalEvents(
+        _ events: [LocalUsageEvent],
+        sourceIdentifier: String,
+        sourceDisplayName: String,
+        sourceKind: String,
+        accuracy: UsageAccuracy,
+        allowDecreasingTotals: Bool = false,
+        checkpoint: LocalFileCheckpoint? = nil,
+        fileIdentity: String? = nil,
+        canonicalPathHash: String? = nil
+    ) throws {
+        precondition(
+            checkpoint == nil || (fileIdentity != nil && canonicalPathHash != nil),
+            "A checkpoint requires a file identity and canonical path hash"
+        )
+
+        try database.writer.write { database in
+            try database.execute(
+                sql: """
+                    INSERT INTO usage_sources (id, kind, display_name, status, accuracy, last_scan_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        kind = excluded.kind,
+                        display_name = excluded.display_name,
+                        status = excluded.status,
+                        accuracy = excluded.accuracy,
+                        last_scan_at = excluded.last_scan_at,
+                        last_error_code = NULL
+                    """,
+                arguments: [
+                    sourceIdentifier,
+                    sourceKind,
+                    sourceDisplayName,
+                    "online",
+                    accuracy.rawValue,
+                    Date()
+                ]
+            )
+
+            let upsertConversation = try database.makeStatement(sql: """
+                INSERT INTO conversations (
+                    id, source_id, external_session_hash, model_id, project_label,
+                    started_at, last_event_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    model_id = COALESCE(excluded.model_id, conversations.model_id),
+                    project_label = COALESCE(excluded.project_label, conversations.project_label),
+                    started_at = CASE
+                        WHEN conversations.started_at IS NULL OR excluded.started_at < conversations.started_at
+                        THEN excluded.started_at ELSE conversations.started_at END,
+                    last_event_at = CASE
+                        WHEN conversations.last_event_at IS NULL OR excluded.last_event_at > conversations.last_event_at
+                        THEN excluded.last_event_at ELSE conversations.last_event_at END
+                """)
+            let decreasingTotalCondition = allowDecreasingTotals
+                ? ""
+                : "WHERE excluded.total_tokens >= usage_events.total_tokens"
+            let upsertEvent = try database.makeStatement(sql: """
+                INSERT INTO usage_events (
+                    idempotency_key, conversation_id, occurred_at, model_id,
+                    input_tokens, cached_input_tokens, cache_write_tokens,
+                    output_tokens, reasoning_tokens, total_tokens,
+                    accuracy, raw_schema_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(idempotency_key) DO UPDATE SET
+                    conversation_id = excluded.conversation_id,
+                    occurred_at = excluded.occurred_at,
+                    model_id = excluded.model_id,
+                    input_tokens = excluded.input_tokens,
+                    cached_input_tokens = excluded.cached_input_tokens,
+                    cache_write_tokens = excluded.cache_write_tokens,
+                    output_tokens = excluded.output_tokens,
+                    reasoning_tokens = excluded.reasoning_tokens,
+                    total_tokens = excluded.total_tokens,
+                    accuracy = excluded.accuracy,
+                    raw_schema_version = excluded.raw_schema_version
+                \(decreasingTotalCondition)
+                """)
+
+            for event in events {
+                let conversationID = "\(sourceIdentifier):\(event.sessionIdentifier)"
+                try upsertConversation.execute(arguments: [
+                    conversationID,
+                    sourceIdentifier,
+                    event.sessionIdentifier,
+                    event.model,
+                    event.projectLabel,
+                    event.occurredAt,
+                    event.occurredAt
+                ])
+                try upsertEvent.execute(arguments: [
+                    event.idempotencyKey,
+                    conversationID,
+                    event.occurredAt,
+                    event.model,
+                    event.counters.inputTokens,
+                    event.counters.cachedInputTokens,
+                    event.counters.cacheWriteTokens,
+                    event.counters.outputTokens,
+                    event.counters.reasoningTokens,
+                    event.counters.totalTokens,
+                    accuracy.rawValue,
+                    event.rawSchemaVersion
+                ])
+            }
+
+            if let checkpoint, let fileIdentity, let canonicalPathHash {
+                try database.execute(
+                    sql: """
+                        INSERT INTO ingest_checkpoints (
+                            source_id, file_identity, canonical_path_hash, byte_offset,
+                            last_complete_line_at
+                        ) VALUES (?, ?, ?, ?, ?)
+                        ON CONFLICT(source_id, file_identity) DO UPDATE SET
+                            canonical_path_hash = excluded.canonical_path_hash,
+                            byte_offset = excluded.byte_offset,
+                            last_complete_line_at = excluded.last_complete_line_at
+                        """,
+                    arguments: [
+                        sourceIdentifier,
+                        fileIdentity,
+                        canonicalPathHash,
+                        Int64(clamping: checkpoint.byteOffset),
+                        Date()
+                    ]
+                )
+            }
+        }
+    }
+
+    func latestConversationSnapshot() throws -> TokenUsageSnapshot? {
+        try database.writer.read { database in
+            guard let row = try Row.fetchOne(
+                database,
+                sql: """
+                    WITH latest_conversation AS (
+                        SELECT conversation_id
+                        FROM usage_events
+                        ORDER BY occurred_at DESC, idempotency_key DESC
+                        LIMIT 1
+                    )
+                    SELECT conversations.source_id AS source_id,
+                           conversations.external_session_hash AS session_id,
+                           CASE WHEN COUNT(DISTINCT usage_events.model_id) = 1
+                                THEN MAX(usage_events.model_id) ELSE NULL END AS model_id,
+                           SUM(input_tokens) AS input_tokens,
+                           SUM(cached_input_tokens) AS cached_input_tokens,
+                           SUM(cache_write_tokens) AS cache_write_tokens,
+                           SUM(output_tokens) AS output_tokens,
+                           SUM(reasoning_tokens) AS reasoning_tokens,
+                           SUM(total_tokens) AS total_tokens,
+                           MAX(occurred_at) AS recorded_at,
+                           CASE MAX(CASE usage_events.accuracy
+                               WHEN 'credits' THEN 3
+                               WHEN 'estimated' THEN 2
+                               WHEN 'derived' THEN 1
+                               ELSE 0 END)
+                               WHEN 3 THEN 'credits'
+                               WHEN 2 THEN 'estimated'
+                               WHEN 1 THEN 'derived'
+                               ELSE 'exact' END AS accuracy
+                    FROM usage_events
+                    JOIN latest_conversation
+                      ON latest_conversation.conversation_id = usage_events.conversation_id
+                    JOIN conversations ON conversations.id = usage_events.conversation_id
+                    GROUP BY conversations.source_id, conversations.external_session_hash
+                    """
+            ) else {
+                return nil
+            }
+            return TokenUsageSnapshot(
+                source: row["source_id"],
+                model: row["model_id"],
+                sessionIdentifier: row["session_id"],
+                inputTokens: row["input_tokens"],
+                cachedInputTokens: row["cached_input_tokens"],
+                cacheWriteTokens: row["cache_write_tokens"],
+                outputTokens: row["output_tokens"],
+                reasoningTokens: row["reasoning_tokens"],
+                totalTokens: row["total_tokens"],
+                recordedAt: row["recorded_at"],
+                accuracy: Self.accuracy(row["accuracy"])
+            )
+        }
+    }
+
     func aggregate(source: String?, from startDate: Date, through endDate: Date) throws -> UsageAggregation {
         try database.writer.read { database in
             let rows = try Row.fetchAll(
@@ -246,7 +482,16 @@ struct UsageRepository: Sendable {
                            SUM(output_tokens) AS output_tokens,
                            SUM(reasoning_tokens) AS reasoning_tokens,
                            SUM(total_tokens) AS total_tokens,
-                           MAX(occurred_at) AS recorded_at
+                           MAX(occurred_at) AS recorded_at,
+                           CASE MAX(CASE usage_events.accuracy
+                               WHEN 'credits' THEN 3
+                               WHEN 'estimated' THEN 2
+                               WHEN 'derived' THEN 1
+                               ELSE 0 END)
+                               WHEN 3 THEN 'credits'
+                               WHEN 2 THEN 'estimated'
+                               WHEN 1 THEN 'derived'
+                               ELSE 'exact' END AS accuracy
                     FROM usage_events
                     JOIN conversations ON conversations.id = usage_events.conversation_id
                     JOIN usage_sources ON usage_sources.id = conversations.source_id
@@ -282,7 +527,7 @@ struct UsageRepository: Sendable {
                     reasoningTokens: row["reasoning_tokens"],
                     totalTokens: row["total_tokens"],
                     recordedAt: row["recorded_at"],
-                    accuracy: .exact
+                    accuracy: Self.accuracy(row["accuracy"])
                 )
             }
             let aggregateSource = source ?? "all"
@@ -337,7 +582,7 @@ struct UsageRepository: Sendable {
                 reasoningTokens: total.reasoningTokens,
                 totalTokens: total.totalTokens,
                 recordedAt: latestDate,
-                accuracy: .exact
+                accuracy: Self.combinedAccuracy(modelSnapshots)
             )
             return UsageAggregation(
                 snapshot: aggregateSnapshot,
@@ -384,7 +629,16 @@ struct UsageRepository: Sendable {
                            SUM(output_tokens) AS output_tokens,
                            SUM(reasoning_tokens) AS reasoning_tokens,
                            SUM(total_tokens) AS total_tokens,
-                           MAX(occurred_at) AS recorded_at
+                           MAX(occurred_at) AS recorded_at,
+                           CASE MAX(CASE usage_events.accuracy
+                               WHEN 'credits' THEN 3
+                               WHEN 'estimated' THEN 2
+                               WHEN 'derived' THEN 1
+                               ELSE 0 END)
+                               WHEN 3 THEN 'credits'
+                               WHEN 2 THEN 'estimated'
+                               WHEN 1 THEN 'derived'
+                               ELSE 'exact' END AS accuracy
                     FROM buckets
                     JOIN usage_events
                       ON usage_events.occurred_at >= buckets.start_at
@@ -416,7 +670,7 @@ struct UsageRepository: Sendable {
                         reasoningTokens: row["reasoning_tokens"],
                         totalTokens: row["total_tokens"],
                         recordedAt: row["recorded_at"],
-                        accuracy: .exact
+                        accuracy: Self.accuracy(row["accuracy"])
                     )
                 }
                 return UsageTrendBucket(
@@ -455,7 +709,7 @@ struct UsageRepository: Sendable {
                     reasoningTokens: counters.reasoningTokens,
                     totalTokens: counters.totalTokens,
                     recordedAt: groupedSnapshots.map(\.recordedAt).max() ?? .distantPast,
-                    accuracy: .exact
+                    accuracy: combinedAccuracy(groupedSnapshots)
                 )
             }
             .sorted { left, right in
@@ -464,6 +718,25 @@ struct UsageRepository: Sendable {
                 }
                 return left.totalTokens > right.totalTokens
             }
+    }
+
+    private static func accuracy(_ rawValue: String?) -> UsageAccuracy {
+        rawValue.flatMap(UsageAccuracy.init(rawValue:)) ?? .exact
+    }
+
+    private static func combinedAccuracy(
+        _ snapshots: [TokenUsageSnapshot]
+    ) -> UsageAccuracy {
+        snapshots.map(\.accuracy).max { accuracyRank($0) < accuracyRank($1) } ?? .exact
+    }
+
+    private static func accuracyRank(_ accuracy: UsageAccuracy) -> Int {
+        switch accuracy {
+        case .exact: 0
+        case .derived: 1
+        case .estimated: 2
+        case .credits: 3
+        }
     }
 
     private static func removeReplayedUsage(

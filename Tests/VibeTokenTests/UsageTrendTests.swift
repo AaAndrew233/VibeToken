@@ -91,7 +91,7 @@ final class UsageTrendTests: XCTestCase {
         )
         let points = UsageTrendBuilder.points(
             from: series,
-            costEstimator: CostEstimator(catalog: .vibeCafeCompatibleCodex)
+            costEstimator: CostEstimator(catalog: .officialAPI)
         )
 
         XCTAssertEqual(series.buckets.count, 3)

@@ -19,14 +19,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 supportDirectory: configuration.applicationSupportDirectory
             )
             let repository = UsageRepository(database: database)
-            let adapter = CodexUsageAdapter(
+            let codexAdapter = CodexUsageAdapter(
                 configuration: configuration,
                 repository: repository
+            )
+            var usageSources: [any UsageSourceAdapter] = [
+                codexAdapter,
+                ClaudeCodeUsageAdapter(
+                    configuration: configuration,
+                    repository: repository
+                ),
+                GeminiCLIUsageAdapter(
+                    configuration: configuration,
+                    repository: repository
+                ),
+                OpenCodeUsageAdapter(
+                    configuration: configuration,
+                    repository: repository
+                ),
+                GitHubCopilotCLIUsageAdapter(
+                    configuration: configuration,
+                    repository: repository
+                ),
+                CursorUsageAdapter(
+                    configuration: configuration,
+                    repository: repository
+                ),
+                VSCodeTaskUsageAdapter(
+                    tool: .cline,
+                    configuration: configuration,
+                    repository: repository
+                ),
+                VSCodeTaskUsageAdapter(
+                    tool: .rooCode,
+                    configuration: configuration,
+                    repository: repository
+                ),
+                KiroUsageAdapter(
+                    configuration: configuration,
+                    repository: repository
+                )
+            ]
+            usageSources.append(contentsOf: FileUsageTool.allCases.map {
+                FileUsageAdapter(
+                    tool: $0,
+                    configuration: configuration,
+                    repository: repository
+                ) as any UsageSourceAdapter
+            })
+            usageSources.append(contentsOf: SQLiteUsageTool.allCases.map {
+                SQLiteUsageAdapter(
+                    tool: $0,
+                    configuration: configuration,
+                    repository: repository
+                ) as any UsageSourceAdapter
+            })
+            usageSources.append(AntigravityUsageAdapter(
+                configuration: configuration,
+                repository: repository
+            ))
+            let ingestionCoordinator = UsageIngestionCoordinator(
+                sources: usageSources,
+                repository: repository,
+                maximumWatchFiles: configuration.maximumWatchedSessionFiles
             )
             let sub2APISessionStore = FileSub2APISessionStore(
                 supportDirectory: configuration.applicationSupportDirectory
             )
             let sub2APIConnectionStore = FileSub2APIConnectionStore(
+                supportDirectory: configuration.applicationSupportDirectory
+            )
+            let sub2APICapacityConfigurationStore = FileSub2APICapacityConfigurationStore(
                 supportDirectory: configuration.applicationSupportDirectory
             )
             let sub2APIClient = Sub2APIClient(
@@ -37,17 +100,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 client: sub2APIClient,
                 sessionStore: sub2APISessionStore,
                 connectionStore: sub2APIConnectionStore,
+                capacityConfigurationStore: sub2APICapacityConfigurationStore,
                 pageSize: configuration.sub2APIPageSize,
                 maximumPages: configuration.sub2APIMaximumPages,
                 staleAfter: configuration.sub2APISnapshotStaleSeconds,
                 minimumRefreshInterval: configuration.sub2APIMinimumRefreshSeconds
             )
             let state = AppState(
-                adapter: adapter,
+                ingestionCoordinator: ingestionCoordinator,
                 sub2APIPoolMonitor: sub2APIPoolMonitor,
                 refreshInterval: configuration.refreshInterval,
                 fileEventDebounceMilliseconds: configuration.fileEventDebounceMilliseconds,
-                costEstimator: CostEstimator(catalog: .vibeCafeCompatibleCodex)
+                costEstimator: CostEstimator(catalog: .officialAPI)
             )
             if ProcessInfo.processInfo.environment["VIBETOKEN_UI_TEST_SUB2API"] == "1" {
                 state.installSub2APIVisualTestFixture()
@@ -109,6 +173,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             closePopover(sender)
             return
         }
+        showPopover()
+    }
+
+    private func showPopover() {
+        guard !popover.isShown else { return }
         guard let button = statusItem?.button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         guard popover.isShown else { return }

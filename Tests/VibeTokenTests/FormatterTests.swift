@@ -3,7 +3,7 @@ import XCTest
 @testable import VibeToken
 
 final class FormatterTests: XCTestCase {
-    func testTokenFormatterUsesVibeUsageCompactSuffixes() {
+    func testTokenFormatterUsesCompactSuffixes() {
         let value = TokenFormatter.string(
             12_345_678_901,
             locale: Locale(identifier: "en_US")
@@ -51,7 +51,7 @@ final class FormatterTests: XCTestCase {
         XCTAssertEqual(value, "123.5M｜--")
     }
 
-    func testMoneyFormatterCompactsLargeAmountsLikeVibeUsage() {
+    func testMoneyFormatterCompactsLargeAmounts() {
         let value = MoneyFormatter.string(
             MoneyAmount(micros: 3_358_951_996, currencyCode: "USD"),
             locale: Locale(identifier: "en_US")

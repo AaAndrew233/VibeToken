@@ -26,6 +26,7 @@ enum CopyKey: String, Sendable {
     case currentSession
     case sessionCount
     case exact
+    case estimatedUsage
     case updatedJustNow
     case noData
     case sourceUnavailable
@@ -40,6 +41,7 @@ enum CopyKey: String, Sendable {
     case thirtyMinuteRefresh
     case manualRefresh
     case localOnly
+    case localFirst
     case credentialsSavedLocally
     case connected
     case language
@@ -82,6 +84,15 @@ enum CopyKey: String, Sendable {
     case excludedShadows
     case connectSub2API
     case configureConnection
+    case configureAccountCapacity
+    case detectedPlan
+    case capacityType
+    case account
+    case saveConfiguration
+    case capacityConfigurationHint
+    case noAccountsFound
+    case selectCapacityType
+    case unconfiguredCapacity
     case serverAddress
     case adminEmail
     case password
@@ -120,9 +131,10 @@ enum Localizer {
         .currentSession: "当前会话",
         .sessionCount: "会话数",
         .exact: "精确",
+        .estimatedUsage: "估算",
         .updatedJustNow: "刚刚更新",
         .noData: "暂无用量数据",
-        .sourceUnavailable: "未检测到 Codex 会话",
+        .sourceUnavailable: "未检测到本地用量",
         .retry: "重试",
         .overview: "概览",
         .dataSources: "数据源",
@@ -133,7 +145,8 @@ enum Localizer {
         .fiveMinuteRefresh: "每 5 分钟",
         .thirtyMinuteRefresh: "每 30 分钟",
         .manualRefresh: "手动刷新",
-        .localOnly: "仅在本机处理",
+        .localOnly: "数据处理",
+        .localFirst: "本地优先",
         .credentialsSavedLocally: "本地保存",
         .connected: "已连接",
         .language: "语言",
@@ -176,6 +189,15 @@ enum Localizer {
         .excludedShadows: "已排除影子账号",
         .connectSub2API: "连接 Sub2API",
         .configureConnection: "连接设置",
+        .configureAccountCapacity: "配置账号额度",
+        .detectedPlan: "检测套餐",
+        .capacityType: "额度类型",
+        .account: "账号",
+        .saveConfiguration: "保存配置",
+        .capacityConfigurationHint: "基础套餐由 Sub2API 识别；Pro 的额度倍数需要手动确认。",
+        .noAccountsFound: "未找到可同步账号",
+        .selectCapacityType: "请选择",
+        .unconfiguredCapacity: "待配置额度",
         .serverAddress: "服务地址",
         .adminEmail: "管理员邮箱",
         .password: "密码",
@@ -204,9 +226,10 @@ enum Localizer {
         .currentSession: "Current Session",
         .sessionCount: "Sessions",
         .exact: "Exact",
+        .estimatedUsage: "Estimated",
         .updatedJustNow: "Updated just now",
         .noData: "No usage data",
-        .sourceUnavailable: "No Codex session detected",
+        .sourceUnavailable: "No local usage detected",
         .retry: "Retry",
         .overview: "Overview",
         .dataSources: "Data Sources",
@@ -217,7 +240,8 @@ enum Localizer {
         .fiveMinuteRefresh: "Every 5 Minutes",
         .thirtyMinuteRefresh: "Every 30 Minutes",
         .manualRefresh: "Manual",
-        .localOnly: "Processed locally",
+        .localOnly: "Data Processing",
+        .localFirst: "Local-first",
         .credentialsSavedLocally: "Saved locally",
         .connected: "Connected",
         .language: "Language",
@@ -260,6 +284,15 @@ enum Localizer {
         .excludedShadows: "Shadow accounts excluded",
         .connectSub2API: "Connect Sub2API",
         .configureConnection: "Connection Settings",
+        .configureAccountCapacity: "Configure Account Capacity",
+        .detectedPlan: "Detected Plan",
+        .capacityType: "Capacity Type",
+        .account: "Account",
+        .saveConfiguration: "Save Configuration",
+        .capacityConfigurationHint: "Sub2API detects the base plan. Confirm the Pro capacity multiplier manually.",
+        .noAccountsFound: "No syncable accounts found",
+        .selectCapacityType: "Select",
+        .unconfiguredCapacity: "Capacity Not Set",
         .serverAddress: "Server Address",
         .adminEmail: "Admin Email",
         .password: "Password",

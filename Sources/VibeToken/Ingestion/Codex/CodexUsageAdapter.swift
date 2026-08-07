@@ -11,7 +11,7 @@ actor CodexUsageAdapter: UsageSourceAdapter {
     nonisolated let accuracy = UsageAccuracy.exact
 
     private let configuration: AppConfiguration
-    private let sessionsRoot: URL
+    private var codexHomes: [URL]
     private let parser = CodexTokenEventParser()
     private let repository: UsageRepository
     private var cachedLatestURL: URL?
@@ -22,14 +22,12 @@ actor CodexUsageAdapter: UsageSourceAdapter {
 
     init(configuration: AppConfiguration, repository: UsageRepository) {
         self.configuration = configuration
-        sessionsRoot = configuration.codexHome.appendingPathComponent("sessions", isDirectory: true)
+        codexHomes = Self.uniqueURLs([configuration.codexHome] + configuration.additionalCodexHomes)
         self.repository = repository
     }
 
     func discover() async -> Bool {
-        var isDirectory: ObjCBool = false
-        return FileManager.default.fileExists(atPath: sessionsRoot.path, isDirectory: &isDirectory)
-            && isDirectory.boolValue
+        dataRoots().contains(where: Self.isDirectory)
     }
 
     func currentSnapshot() async throws -> TokenUsageSnapshot? {
@@ -53,6 +51,10 @@ actor CodexUsageAdapter: UsageSourceAdapter {
         cachedLatestModificationDate = modificationDate
         cachedLatestSnapshot = snapshot
         return snapshot
+    }
+
+    func ingestRecentSessions() async throws {
+        try await ingestRecentSessions(now: Date())
     }
 
     func ingestRecentSessions(now: Date = Date()) async throws {
@@ -111,12 +113,15 @@ actor CodexUsageAdapter: UsageSourceAdapter {
 
     func watchTargets(now: Date = Date()) throws -> CodexWatchTargets {
         let calendar = Calendar.current
-        let todayDirectory = directory(for: now, calendar: calendar)
-        let files = try jsonlFiles(in: todayDirectory)
+        let todayDirectories = sessionRoots().map {
+            directory(for: now, sessionsRoot: $0, calendar: calendar)
+        }
+        let directories = todayDirectories + archiveRoots().filter(Self.isDirectory)
+        let files = try directories.flatMap { try jsonlFiles(in: $0) }
             .sorted { modificationDate(for: $0) > modificationDate(for: $1) }
         return CodexWatchTargets(
             fileURLs: Array(files.prefix(configuration.maximumWatchedSessionFiles)),
-            directoryURLs: [todayDirectory]
+            directoryURLs: directories
         )
     }
 
@@ -152,7 +157,9 @@ actor CodexUsageAdapter: UsageSourceAdapter {
     }
 
     private func latestSessionFile() throws -> URL? {
-        let todayFiles = try jsonlFiles(in: directory(for: Date(), calendar: .current))
+        let todayFiles = try sessionRoots().flatMap {
+            try jsonlFiles(in: directory(for: Date(), sessionsRoot: $0, calendar: .current))
+        }
         if !todayFiles.isEmpty {
             return todayFiles.max { modificationDate(for: $0) < modificationDate(for: $1) }
         }
@@ -171,16 +178,26 @@ actor CodexUsageAdapter: UsageSourceAdapter {
         var files: [URL] = []
 
         while current <= end {
-            files.append(contentsOf: try jsonlFiles(in: directory(for: current, calendar: calendar)))
+            for sessionsRoot in sessionRoots() {
+                files.append(contentsOf: try jsonlFiles(
+                    in: directory(for: current, sessionsRoot: sessionsRoot, calendar: calendar)
+                ))
+            }
             guard let next = calendar.date(byAdding: .day, value: 1, to: current) else { break }
             current = next
         }
+        files.append(contentsOf: LocalUsageFileDiscovery.files(
+            under: archiveRoots(),
+            extensions: ["jsonl"],
+            modifiedSince: start,
+            maximumFiles: configuration.maximumUsageSourceFiles
+        ))
         return files.sorted { left, right in
             modificationDate(for: left) < modificationDate(for: right)
         }
     }
 
-    private func directory(for date: Date, calendar: Calendar) -> URL {
+    private func directory(for date: Date, sessionsRoot: URL, calendar: Calendar) -> URL {
         let components = calendar.dateComponents([.year, .month, .day], from: date)
         return sessionsRoot
             .appendingPathComponent(String(format: "%04d", components.year ?? 0), isDirectory: true)
@@ -204,5 +221,30 @@ actor CodexUsageAdapter: UsageSourceAdapter {
             includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey, .fileSizeKey],
             options: [.skipsHiddenFiles]
         ).filter { $0.pathExtension == "jsonl" }
+    }
+
+    private func sessionRoots() -> [URL] {
+        codexHomes.map { $0.appendingPathComponent("sessions", isDirectory: true) }
+    }
+
+    private func archiveRoots() -> [URL] {
+        codexHomes.map { $0.appendingPathComponent("archived_sessions", isDirectory: true) }
+    }
+
+    private func dataRoots() -> [URL] {
+        sessionRoots() + archiveRoots()
+    }
+
+    private static func uniqueURLs(_ urls: [URL]) -> [URL] {
+        var seen = Set<String>()
+        return urls.filter {
+            seen.insert($0.standardizedFileURL.resolvingSymlinksInPath().path).inserted
+        }
+    }
+
+    private static func isDirectory(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+            && isDirectory.boolValue
     }
 }

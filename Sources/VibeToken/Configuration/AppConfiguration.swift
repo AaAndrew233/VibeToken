@@ -1,6 +1,8 @@
 import Foundation
 
 struct AppConfiguration: Sendable {
+    static let codexHomeOverrideKey = "codexHomePath"
+
     let codexHome: URL
     let applicationSupportDirectory: URL
     let refreshInterval: Duration
@@ -10,22 +12,52 @@ struct AppConfiguration: Sendable {
     let maximumJSONLineBytes: Int
     let historyLookbackDays: Int
     let maximumWatchedSessionFiles: Int
+    let maximumUsageSourceFiles: Int
+    let maximumStructuredUsageFileBytes: Int
+    let usageDatabasePageSize: Int = 500
+    let additionalCodexHomes: [URL]
     let sub2APIRequestTimeoutSeconds: TimeInterval = 15
     let sub2APIPageSize: Int = 100
     let sub2APIMaximumPages: Int = 100
     let sub2APISnapshotStaleSeconds: TimeInterval = 15 * 60
     let sub2APIMinimumRefreshSeconds: TimeInterval = 30
 
-    static func live(environment: [String: String] = ProcessInfo.processInfo.environment) -> AppConfiguration {
+    static func live(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        userDefaults: UserDefaults = .standard
+    ) -> AppConfiguration {
         let homeDirectory = FileManager.default.homeDirectoryForCurrentUser
         let configuredCodexHome = environment["CODEX_HOME"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let savedCodexHome = userDefaults.string(forKey: codexHomeOverrideKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
 
+        let defaultCodexHome = homeDirectory.appendingPathComponent(".codex", isDirectory: true)
         let codexHome: URL
         if let configuredCodexHome, !configuredCodexHome.isEmpty {
             codexHome = URL(fileURLWithPath: configuredCodexHome, isDirectory: true)
         } else {
-            codexHome = homeDirectory.appendingPathComponent(".codex", isDirectory: true)
+            codexHome = defaultCodexHome
+        }
+
+        var additionalCodexHomes: [URL] = [defaultCodexHome]
+        if let savedCodexHome, !savedCodexHome.isEmpty {
+            additionalCodexHomes.append(URL(fileURLWithPath: savedCodexHome, isDirectory: true))
+        }
+        if let entries = try? FileManager.default.contentsOfDirectory(
+            at: homeDirectory,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: []
+        ) {
+            additionalCodexHomes.append(contentsOf: entries.filter {
+                $0.lastPathComponent.hasPrefix(".codex-")
+            })
+        }
+        var seenCodexHomes = Set<String>()
+        additionalCodexHomes = additionalCodexHomes.filter {
+            let path = $0.standardizedFileURL.resolvingSymlinksInPath().path
+            return path != codexHome.standardizedFileURL.resolvingSymlinksInPath().path
+                && seenCodexHomes.insert(path).inserted
         }
 
         return AppConfiguration(
@@ -37,7 +69,10 @@ struct AppConfiguration: Sendable {
             ingestionChunkBytes: 512 * 1_024,
             maximumJSONLineBytes: 8 * 1_024 * 1_024,
             historyLookbackDays: 30,
-            maximumWatchedSessionFiles: 64
+            maximumWatchedSessionFiles: 256,
+            maximumUsageSourceFiles: 10_000,
+            maximumStructuredUsageFileBytes: 64 * 1_024 * 1_024,
+            additionalCodexHomes: additionalCodexHomes
         )
     }
 

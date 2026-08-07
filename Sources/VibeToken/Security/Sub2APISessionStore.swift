@@ -13,6 +13,11 @@ protocol Sub2APIConnectionStoring: Sendable {
     func delete() throws
 }
 
+protocol Sub2APICapacityConfigurationStoring: Sendable {
+    func load() throws -> Sub2APIAccountCapacityConfiguration?
+    func save(_ configuration: Sub2APIAccountCapacityConfiguration) throws
+}
+
 struct FileSub2APISessionStore: Sub2APISessionStoring {
     private let store: LocalCodableFileStore<Sub2APISession>
 
@@ -62,6 +67,28 @@ struct FileSub2APIConnectionStore: Sub2APIConnectionStoring {
 
     func delete() throws {
         try store.delete()
+    }
+}
+
+struct FileSub2APICapacityConfigurationStore: Sub2APICapacityConfigurationStoring {
+    private let store: LocalCodableFileStore<Sub2APIAccountCapacityConfiguration>
+
+    init(supportDirectory: URL, maximumFileSize: Int = 1_024 * 1_024) {
+        store = LocalCodableFileStore(
+            fileURL: supportDirectory.appendingPathComponent(
+                "sub2api-capacity-config.json",
+                isDirectory: false
+            ),
+            maximumFileSize: maximumFileSize
+        )
+    }
+
+    func load() throws -> Sub2APIAccountCapacityConfiguration? {
+        try store.load()
+    }
+
+    func save(_ configuration: Sub2APIAccountCapacityConfiguration) throws {
+        try store.save(configuration)
     }
 }
 

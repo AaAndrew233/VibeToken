@@ -10,6 +10,8 @@ struct ModelPricingRule: Equatable, Sendable {
     let canonicalModel: String
     let standardRate: TokenPriceRate
     let tierRates: [String: TokenPriceRate]
+    let effectiveFrom: Date?
+    let effectiveUntil: Date?
 }
 
 struct MatchedModelPricing: Equatable, Sendable {

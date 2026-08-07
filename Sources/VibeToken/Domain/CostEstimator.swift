@@ -5,7 +5,7 @@ struct CostEstimator: Sendable {
 
     func estimate(for snapshot: TokenUsageSnapshot) -> CostEstimate? {
         guard let model = snapshot.model,
-              let pricing = catalog.match(model: model) else {
+              let pricing = catalog.match(model: model, at: snapshot.recordedAt) else {
             return nil
         }
 

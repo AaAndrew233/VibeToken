@@ -16,6 +16,7 @@ final class AppState {
     private(set) var trendPoints: [UsageTrendPoint] = []
     private(set) var trendGranularity = UsageTrendGranularity.hourly
     private(set) var sub2APIPoolSnapshot: Sub2APIPoolSnapshot?
+    private(set) var sub2APIAccountCapacityOptions: [Sub2APIAccountCapacityOption] = []
     private(set) var sub2APIConnection: Sub2APIConnection?
     private(set) var sub2APIStatus = Sub2APIStatus.disconnected
     private(set) var sub2APILastError: Sub2APIError?
@@ -38,7 +39,7 @@ final class AppState {
             updateMenuBarText()
         }
     }
-    @ObservationIgnored private let adapter: CodexUsageAdapter
+    @ObservationIgnored private let ingestionCoordinator: UsageIngestionCoordinator
     @ObservationIgnored private let sub2APIPoolMonitor: Sub2APIPoolMonitor
     @ObservationIgnored private let refreshInterval: Duration
     @ObservationIgnored private let costEstimator: CostEstimator
@@ -55,13 +56,13 @@ final class AppState {
     private static let refreshModeKey = "refreshMode"
 
     init(
-        adapter: CodexUsageAdapter,
+        ingestionCoordinator: UsageIngestionCoordinator,
         sub2APIPoolMonitor: Sub2APIPoolMonitor,
         refreshInterval: Duration,
         fileEventDebounceMilliseconds: Int,
         costEstimator: CostEstimator
     ) {
-        self.adapter = adapter
+        self.ingestionCoordinator = ingestionCoordinator
         self.sub2APIPoolMonitor = sub2APIPoolMonitor
         self.refreshInterval = refreshInterval
         self.costEstimator = costEstimator
@@ -195,6 +196,12 @@ final class AppState {
             : "\(modelCount) models"
     }
 
+    func sourceCountText() -> String {
+        language == .simplifiedChinese
+            ? "\(toolDistribution.count) 个工具"
+            : "\(toolDistribution.count) tools"
+    }
+
     func connectSub2API(serverURL: String, email: String, password: String) async {
         guard !sub2APIStatus.isBusy else { return }
         sub2APIStatus = .connecting
@@ -256,6 +263,7 @@ final class AppState {
             try await sub2APIPoolMonitor.disconnect()
             sub2APIConnection = nil
             sub2APIPoolSnapshot = nil
+            sub2APIAccountCapacityOptions = []
             sub2APILastError = nil
             pendingSub2APIMaskedEmail = nil
             sub2APIStatus = .disconnected
@@ -266,6 +274,43 @@ final class AppState {
         } catch {
             sub2APILastError = .secureStorageFailed
             sub2APIStatus = .failed(.secureStorageFailed)
+        }
+    }
+
+    func prepareSub2APICapacityConfiguration() async {
+        guard sub2APIConnection != nil, !sub2APIStatus.isBusy else { return }
+        if sub2APIAccountCapacityOptions.isEmpty {
+            _ = await refreshSub2APIPool(force: true)
+        } else {
+            await loadSub2APICapacityOptions()
+        }
+    }
+
+    @discardableResult
+    func saveSub2APICapacitySelections(
+        _ tiersByAccountID: [Int64: Sub2APICapacityTier]
+    ) async -> Bool {
+        guard sub2APIConnection != nil, !sub2APIStatus.isBusy else { return false }
+        sub2APIStatus = .syncing
+        sub2APILastError = nil
+        do {
+            let selections = tiersByAccountID.map {
+                Sub2APIAccountCapacitySelection(accountID: $0.key, tier: $0.value)
+            }
+            if let snapshot = try await sub2APIPoolMonitor.saveCapacitySelections(selections) {
+                sub2APIPoolSnapshot = snapshot
+            }
+            sub2APIAccountCapacityOptions = try await sub2APIPoolMonitor.capacityOptions()
+            sub2APIStatus = .connected
+            return true
+        } catch let error as Sub2APIError {
+            sub2APILastError = error
+            sub2APIStatus = .failed(error)
+            return false
+        } catch {
+            sub2APILastError = .secureStorageFailed
+            sub2APIStatus = .failed(.secureStorageFailed)
+            return false
         }
     }
 
@@ -284,43 +329,76 @@ final class AppState {
             unavailableAccounts: 0,
             missingWindowAccounts: 0,
             staleWindowAccounts: 0,
+            unconfiguredCapacityAccounts: 0,
             effectiveCapacity: Sub2APIEffectiveCapacitySnapshot(
                 observedAccounts: 11,
                 availableAccounts: 1,
                 windowLimitedAccounts: 10,
                 remainingEquivalentAccounts: 0.79,
-                fiveHourRemainingEquivalentAccounts: 11,
+                fiveHourRemainingEquivalentAccounts: 1,
                 sevenDayRemainingEquivalentAccounts: 0.79,
                 availableFiveHourRemainingFraction: 1,
                 availableSevenDayRemainingFraction: 0.79,
-                nextRecoveryAt: now.addingTimeInterval(2 * 24 * 60 * 60)
+                nextRecoveryAt: now.addingTimeInterval(2 * 24 * 60 * 60),
+                totalCapacityWeight: 87
             ),
             fiveHour: Sub2APIWindowSnapshot(
                 observedAccounts: 11,
-                remainingEquivalentAccounts: 11,
+                remainingEquivalentAccounts: 1,
+                totalCapacityWeight: 87,
                 nextResetAt: now.addingTimeInterval(75 * 60)
             ),
             sevenDay: Sub2APIWindowSnapshot(
                 observedAccounts: 11,
                 remainingEquivalentAccounts: 0.79,
+                totalCapacityWeight: 87,
                 nextResetAt: now.addingTimeInterval(2 * 24 * 60 * 60)
             ),
             plans: [
                 Sub2APIPlanSnapshot(
                     plan: "Plus",
                     accountCount: 7,
-                    fiveHour: Sub2APIWindowSnapshot(observedAccounts: 7, remainingEquivalentAccounts: 7, nextResetAt: nil),
-                    sevenDay: Sub2APIWindowSnapshot(observedAccounts: 7, remainingEquivalentAccounts: 0.79, nextResetAt: nil)
+                    fiveHour: Sub2APIWindowSnapshot(
+                        observedAccounts: 7,
+                        remainingEquivalentAccounts: 1,
+                        totalCapacityWeight: 7,
+                        nextResetAt: nil
+                    ),
+                    sevenDay: Sub2APIWindowSnapshot(
+                        observedAccounts: 7,
+                        remainingEquivalentAccounts: 0.79,
+                        totalCapacityWeight: 7,
+                        nextResetAt: nil
+                    )
                 ),
                 Sub2APIPlanSnapshot(
                     plan: "Pro",
                     accountCount: 4,
-                    fiveHour: Sub2APIWindowSnapshot(observedAccounts: 4, remainingEquivalentAccounts: 4, nextResetAt: nil),
-                    sevenDay: Sub2APIWindowSnapshot(observedAccounts: 4, remainingEquivalentAccounts: 0, nextResetAt: nil)
+                    fiveHour: Sub2APIWindowSnapshot(
+                        observedAccounts: 4,
+                        remainingEquivalentAccounts: 0,
+                        totalCapacityWeight: 80,
+                        nextResetAt: nil
+                    ),
+                    sevenDay: Sub2APIWindowSnapshot(
+                        observedAccounts: 4,
+                        remainingEquivalentAccounts: 0,
+                        totalCapacityWeight: 80,
+                        nextResetAt: nil
+                    )
                 )
             ],
             fetchedAt: now
         )
+        sub2APIAccountCapacityOptions = (1...11).map { id in
+            let isPro = id > 7
+            return Sub2APIAccountCapacityOption(
+                accountID: Int64(id),
+                displayName: nil,
+                detectedPlan: isPro ? "Pro" : "Plus",
+                selectedTier: isPro ? .pro20 : .plus
+            )
+        }
         sub2APIStatus = .connected
     }
 
@@ -330,11 +408,11 @@ final class AppState {
             if snapshot == nil {
                 sourceStatus = .loading
             }
-            try await adapter.ingestRecentSessions()
-            currentSessionSnapshot = try await adapter.currentSnapshot()
+            try await ingestionCoordinator.ingestRecentSessions()
+            currentSessionSnapshot = try await ingestionCoordinator.currentSnapshot()
             let didRefreshAggregation = await refreshAggregation()
             if refreshMode.usesFileEvents {
-                let targets = try await adapter.watchTargets()
+                let targets = await ingestionCoordinator.watchTargets()
                 fileObserver.watch(
                     fileURLs: targets.fileURLs,
                     directoryURLs: targets.directoryURLs
@@ -355,7 +433,7 @@ final class AppState {
             return false
         } catch {
             PrivacyLog.ingestion.error(
-                "Codex refresh failed: \(error.localizedDescription, privacy: .private(mask: .hash))"
+                "Usage refresh failed: \(error.localizedDescription, privacy: .private(mask: .hash))"
             )
             sourceStatus = .failed(AppError.unexpected("").errorDescription ?? "")
             return false
@@ -381,6 +459,7 @@ final class AppState {
         do {
             if let snapshot = try await sub2APIPoolMonitor.refresh(force: force) {
                 sub2APIPoolSnapshot = snapshot
+                sub2APIAccountCapacityOptions = try await sub2APIPoolMonitor.capacityOptions()
                 sub2APILastError = nil
                 sub2APIStatus = .connected
             } else {
@@ -400,13 +479,25 @@ final class AppState {
         }
     }
 
+    private func loadSub2APICapacityOptions() async {
+        do {
+            sub2APIAccountCapacityOptions = try await sub2APIPoolMonitor.capacityOptions()
+        } catch let error as Sub2APIError {
+            sub2APILastError = error
+            sub2APIStatus = .failed(error)
+        } catch {
+            sub2APILastError = .secureStorageFailed
+            sub2APIStatus = .failed(.secureStorageFailed)
+        }
+    }
+
     @discardableResult
     private func refreshAggregation() async -> Bool {
         do {
             let range = selectedTimeRange
             let now = Date()
-            let aggregation = try await adapter.aggregate(range: range, now: now)
-            let trend = try await adapter.trend(range: range, now: now)
+            let aggregation = try await ingestionCoordinator.aggregate(range: range, now: now)
+            let trend = try await ingestionCoordinator.trend(range: range, now: now)
             guard selectedTimeRange == range else { return false }
             snapshot = aggregation.snapshot
             sessionCount = aggregation.sessionCount
@@ -489,4 +580,5 @@ final class AppState {
             displayLocale
         )
     }
+
 }

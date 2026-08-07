@@ -19,34 +19,46 @@ final class Sub2APIStartupTests: XCTestCase {
         )
         let sessionStore = CountingSessionStore(session: session)
         let connectionStore = CountingConnectionStore(connection: connection)
+        let capacityConfigurationStore = MemoryCapacityConfigurationStore()
         let poolMonitor = Sub2APIPoolMonitor(
             client: UnusedSub2APIClient(),
             sessionStore: sessionStore,
             connectionStore: connectionStore,
+            capacityConfigurationStore: capacityConfigurationStore,
             pageSize: 100,
             maximumPages: 100,
             staleAfter: 15 * 60,
             minimumRefreshInterval: 30
         )
+        let configuration = AppConfiguration(
+            codexHome: codexHome,
+            applicationSupportDirectory: codexHome,
+            refreshInterval: .seconds(5),
+            fileEventDebounceMilliseconds: 100,
+            maximumTailBytes: 1_024,
+            ingestionChunkBytes: 1_024,
+            maximumJSONLineBytes: 1_024,
+            historyLookbackDays: 30,
+            maximumWatchedSessionFiles: 64,
+            maximumUsageSourceFiles: 1_000,
+            maximumStructuredUsageFileBytes: 1_024 * 1_024,
+            additionalCodexHomes: []
+        )
+        let repository = UsageRepository(database: database)
+        let codexAdapter = CodexUsageAdapter(
+            configuration: configuration,
+            repository: repository
+        )
         let state = AppState(
-            adapter: CodexUsageAdapter(
-                configuration: AppConfiguration(
-                    codexHome: codexHome,
-                    applicationSupportDirectory: codexHome,
-                    refreshInterval: .seconds(5),
-                    fileEventDebounceMilliseconds: 100,
-                    maximumTailBytes: 1_024,
-                    ingestionChunkBytes: 1_024,
-                    maximumJSONLineBytes: 1_024,
-                    historyLookbackDays: 30,
-                    maximumWatchedSessionFiles: 64
-                ),
-                repository: UsageRepository(database: database)
+            ingestionCoordinator: UsageIngestionCoordinator(
+                sources: [codexAdapter],
+                repository: repository,
+                maximumWatchFiles: configuration.maximumWatchedSessionFiles
             ),
             sub2APIPoolMonitor: poolMonitor,
             refreshInterval: .seconds(5),
             fileEventDebounceMilliseconds: 100,
-            costEstimator: CostEstimator(catalog: .vibeCafeCompatibleCodex)
+            costEstimator: CostEstimator(catalog: .officialAPI)
         )
 
         let didRefresh = await state.refresh(forceRemote: true)
@@ -60,6 +72,19 @@ final class Sub2APIStartupTests: XCTestCase {
         XCTAssertEqual(restoredConnection, connection)
         XCTAssertEqual(connectionStore.loadCount, 1)
         XCTAssertEqual(sessionStore.loadCount, 1)
+    }
+}
+
+private final class MemoryCapacityConfigurationStore: Sub2APICapacityConfigurationStoring, @unchecked Sendable {
+    private let lock = NSLock()
+    private var configuration: Sub2APIAccountCapacityConfiguration?
+
+    func load() throws -> Sub2APIAccountCapacityConfiguration? {
+        lock.withLock { configuration }
+    }
+
+    func save(_ configuration: Sub2APIAccountCapacityConfiguration) throws {
+        lock.withLock { self.configuration = configuration }
     }
 }
 
