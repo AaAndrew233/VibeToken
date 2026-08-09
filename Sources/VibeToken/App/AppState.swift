@@ -303,6 +303,7 @@ final class AppState {
     }
 
     func prepareSub2APICapacityConfiguration() async {
+        if isSub2APIVisualFixture { return }
         guard sub2APIConnection != nil, !sub2APIStatus.isBusy else { return }
         if sub2APIAccountCapacityOptions.isEmpty {
             _ = await refreshSub2APIPool(force: true)
@@ -416,7 +417,7 @@ final class AppState {
             fetchedAt: now
         )
         sub2APIAccountCapacityOptions = (1...11).map { id in
-            let isPro = id > 7
+            let isPro = id <= 4
             return Sub2APIAccountCapacityOption(
                 accountID: Int64(id),
                 displayName: nil,

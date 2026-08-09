@@ -12,63 +12,41 @@ struct Sub2APIConnectionView: View {
     @State private var selectedTiers: [Int64: Sub2APICapacityTier] = [:]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(state.text(
-                        state.sub2APIConnection == nil
-                            ? .configureConnection
-                            : .configureAccountCapacity
-                    ))
-                        .font(.system(size: 17, weight: .semibold))
-                    Text("Sub2API")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button {
-                    isPresented = false
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 16))
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.cancelAction)
-                .accessibilityLabel(state.text(.cancel))
-                .help(state.text(.cancel))
-            }
+        VStack(alignment: .leading, spacing: 0) {
+            header
 
-            if case .requiresTwoFactor(let maskedEmail) = state.sub2APIStatus {
-                twoFactorForm(maskedEmail: maskedEmail)
-            } else if state.sub2APIConnection != nil {
-                capacityConfigurationForm
-            } else {
-                loginForm
+            Divider()
+
+            Group {
+                if case .requiresTwoFactor(let maskedEmail) = state.sub2APIStatus {
+                    twoFactorForm(maskedEmail: maskedEmail)
+                } else if state.sub2APIConnection != nil {
+                    capacityConfigurationForm
+                } else {
+                    loginForm
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(20)
 
             if let error = state.sub2APILastError {
                 Label(error.message(language: state.language), systemImage: "exclamationmark.triangle.fill")
                     .font(.system(size: 11))
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 14)
             }
 
             Spacer(minLength: 0)
 
             if state.sub2APIConnection != nil {
-                Divider()
-                Button(state.text(.disconnect), role: .destructive) {
-                    confirmDisconnect = true
-                }
-                .buttonStyle(.borderless)
-                .disabled(state.sub2APIStatus.isBusy)
+                connectedFooter
             }
         }
-        .padding(22)
         .frame(
-            width: state.sub2APIConnection == nil ? 420 : 540,
-            height: state.sub2APIConnection == nil ? 350 : 570
+            width: state.sub2APIConnection == nil ? 420 : 444,
+            height: state.sub2APIConnection == nil ? 350 : 540
         )
         .background(.regularMaterial)
         .onAppear {
@@ -95,6 +73,48 @@ struct Sub2APIConnectionView: View {
         } message: {
             Text(state.text(.disconnectMessage))
         }
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(state.text(
+                    state.sub2APIConnection == nil
+                        ? .configureConnection
+                        : .configureAccountCapacity
+                ))
+                    .font(.system(size: 17, weight: .semibold))
+                Text(headerSubtitle)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button {
+                isPresented = false
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 26, height: 26)
+                    .background(.quaternary.opacity(0.7), in: Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.cancelAction)
+            .accessibilityLabel(state.text(.cancel))
+            .help(state.text(.cancel))
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
+    }
+
+    private var headerSubtitle: String {
+        guard state.sub2APIConnection != nil else { return "Sub2API" }
+        let count = state.sub2APIAccountCapacityOptions.count
+        guard count > 0 else { return "Sub2API" }
+        return state.language == .simplifiedChinese
+            ? "Sub2API · \(count) 个账号"
+            : "Sub2API · \(count) accounts"
     }
 
     private var loginForm: some View {
@@ -170,24 +190,15 @@ struct Sub2APIConnectionView: View {
 
     private var capacityConfigurationForm: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(state.text(.capacityConfigurationHint))
+            Label(state.text(.capacityConfigurationHint), systemImage: "info.circle")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 12) {
-                Text(state.text(.account))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Text(state.text(.detectedPlan))
-                    .frame(width: 90, alignment: .leading)
-                Text(state.text(.capacityType))
-                    .frame(width: 116, alignment: .leading)
-            }
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 10)
+            VStack(spacing: 0) {
+                capacityTableHeader
+                Divider()
 
-            Group {
                 if state.sub2APIAccountCapacityOptions.isEmpty {
                     HStack(spacing: 9) {
                         if state.sub2APIStatus.isBusy {
@@ -198,7 +209,7 @@ struct Sub2APIConnectionView: View {
                         ))
                             .foregroundStyle(.secondary)
                     }
-                    .frame(maxWidth: .infinity, minHeight: 220)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 0) {
@@ -210,20 +221,139 @@ struct Sub2APIConnectionView: View {
                             }
                         }
                     }
-                    .frame(maxHeight: 300)
+                    .scrollIndicators(.visible)
                 }
             }
-            .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+            .frame(minHeight: 280, idealHeight: 340, maxHeight: 340)
+            .background(.quaternary.opacity(0.24), in: RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay {
                 RoundedRectangle(cornerRadius: 8)
                     .stroke(.separator.opacity(0.55), lineWidth: 0.5)
             }
+        }
+    }
 
-            HStack {
-                Text("\(state.sub2APIAccountCapacityOptions.count) \(state.text(.account))")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
+    private var capacityTableHeader: some View {
+        HStack(spacing: 12) {
+            Text(state.text(.account))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 8) {
+                Text(state.text(.detectedPlan))
+                    .frame(width: 52, alignment: .leading)
+                Text(state.text(.capacityType))
+                    .frame(width: 72, alignment: .leading)
+            }
+            .frame(width: 132, alignment: .leading)
+        }
+        .font(.system(size: 10, weight: .semibold))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 12)
+        .frame(height: 34)
+        .background(.quaternary.opacity(0.42))
+    }
+
+    private func capacityRow(_ option: Sub2APIAccountCapacityOption) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(option.displayName ?? "\(state.text(.account)) #\(option.accountID)")
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                    .help(option.displayName ?? "\(state.text(.account)) #\(option.accountID)")
+                if option.displayName != nil {
+                    Text("#\(option.accountID)")
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: 8) {
+                Text(option.detectedPlan)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(
+                        isDetectedPro(option)
+                            ? AnyShapeStyle(.blue)
+                            : AnyShapeStyle(.secondary)
+                    )
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(
+                        isDetectedPro(option)
+                            ? Color.blue.opacity(0.10)
+                            : Color.secondary.opacity(0.08),
+                        in: Capsule()
+                    )
+                    .frame(width: 52, alignment: .leading)
+
+                if isDetectedPro(option) {
+                    Picker("", selection: capacitySelectionBinding(for: option)) {
+                        Text(state.text(.selectCapacityType))
+                            .tag(nil as Sub2APICapacityTier?)
+                        Text("5x").tag(Optional(Sub2APICapacityTier.pro5))
+                        Text("10x").tag(Optional(Sub2APICapacityTier.pro10))
+                        Text("20x").tag(Optional(Sub2APICapacityTier.pro20))
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .tint(selectedTiers[option.accountID] == nil ? .orange : .accentColor)
+                    .frame(width: 72, alignment: .leading)
+                    .disabled(state.sub2APIStatus.isBusy)
+                    .accessibilityLabel(state.text(.capacityType))
+                } else {
+                    Text("1x")
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .frame(width: 72, alignment: .leading)
+                }
+            }
+            .frame(width: 132, alignment: .leading)
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: 50)
+        .background(
+            isUnconfiguredPro(option)
+                ? Color.orange.opacity(0.055)
+                : Color.clear
+        )
+    }
+
+    private func capacitySelectionBinding(
+        for option: Sub2APIAccountCapacityOption
+    ) -> Binding<Sub2APICapacityTier?> {
+        Binding(
+            get: { selectedTiers[option.accountID] },
+            set: { selectedTiers[option.accountID] = $0 }
+        )
+    }
+
+    private func isUnconfiguredPro(_ option: Sub2APIAccountCapacityOption) -> Bool {
+        isDetectedPro(option) && selectedTiers[option.accountID]?.isProCapacity != true
+    }
+
+    private var connectedFooter: some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack(spacing: 12) {
+                Button(state.text(.disconnect), role: .destructive) {
+                    confirmDisconnect = true
+                }
+                .buttonStyle(.borderless)
+                .disabled(state.sub2APIStatus.isBusy)
+
                 Spacer()
+
+                if unconfiguredProAccountCount > 0 {
+                    Label(
+                        "\(state.text(.unconfiguredCapacity)) \(unconfiguredProAccountCount)",
+                        systemImage: "exclamationmark.circle.fill"
+                    )
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.orange)
+                }
+
                 Button {
                     Task {
                         if await state.saveSub2APICapacitySelections(selectedTiers) {
@@ -240,62 +370,9 @@ struct Sub2APIConnectionView: View {
                         || state.sub2APIStatus.isBusy
                 )
             }
+            .padding(.horizontal, 20)
+            .frame(height: 56)
         }
-    }
-
-    private func capacityRow(_ option: Sub2APIAccountCapacityOption) -> some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(option.displayName ?? "\(state.text(.account)) #\(option.accountID)")
-                    .font(.system(size: 12, weight: .medium))
-                    .lineLimit(1)
-                if option.displayName != nil {
-                    Text("#\(option.accountID)")
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundStyle(.tertiary)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Text(option.detectedPlan)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
-                .frame(width: 90, alignment: .leading)
-
-            if isDetectedPro(option) {
-                Menu {
-                    Button(Sub2APICapacityTier.pro5.displayName) {
-                        selectedTiers[option.accountID] = .pro5
-                    }
-                    Button(Sub2APICapacityTier.pro10.displayName) {
-                        selectedTiers[option.accountID] = .pro10
-                    }
-                    Button(Sub2APICapacityTier.pro20.displayName) {
-                        selectedTiers[option.accountID] = .pro20
-                    }
-                } label: {
-                    HStack(spacing: 5) {
-                        Text(
-                            selectedTiers[option.accountID]?.displayName
-                                ?? state.text(.selectCapacityType)
-                        )
-                        Spacer(minLength: 2)
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.system(size: 8, weight: .semibold))
-                            .foregroundStyle(.tertiary)
-                    }
-                    .frame(width: 104, alignment: .leading)
-                }
-                .menuStyle(.borderlessButton)
-                .frame(width: 116, alignment: .leading)
-            } else {
-                Text(Sub2APICapacityTier.plus.displayName)
-                    .font(.system(size: 11, weight: .medium))
-                    .frame(width: 116, alignment: .leading)
-            }
-        }
-        .padding(.horizontal, 10)
-        .frame(minHeight: 46)
     }
 
     private func syncSelectedTiers() {
@@ -312,11 +389,11 @@ struct Sub2APIConnectionView: View {
     }
 
     private var hasUnconfiguredProAccounts: Bool {
-        state.sub2APIAccountCapacityOptions.contains { option in
-            guard isDetectedPro(option) else { return false }
-            let tier = selectedTiers[option.accountID]
-            return tier?.isProCapacity != true
-        }
+        unconfiguredProAccountCount > 0
+    }
+
+    private var unconfiguredProAccountCount: Int {
+        state.sub2APIAccountCapacityOptions.count(where: isUnconfiguredPro)
     }
 
     private func isDetectedPro(_ option: Sub2APIAccountCapacityOption) -> Bool {
