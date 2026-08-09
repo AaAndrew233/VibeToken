@@ -9,10 +9,13 @@ actor Sub2APIPoolMonitor {
     private let maximumPages: Int
     private let staleAfter: TimeInterval
     private let minimumRefreshInterval: TimeInterval
+    private let usageRefreshInterval: TimeInterval
 
     private var cachedSnapshot: Sub2APIPoolSnapshot?
     private var cachedAccountPayloads: [Sub2APIAccountPayload] = []
     private var cachedConnection: Sub2APIConnection?
+    private var lastUsageRefreshAt: Date?
+    private var supportsUsageRefresh = true
     private var hasLoadedSavedConnection = false
     private var pendingTwoFactor: (connection: Sub2APIConnection, tempToken: String)?
 
@@ -24,7 +27,8 @@ actor Sub2APIPoolMonitor {
         pageSize: Int,
         maximumPages: Int,
         staleAfter: TimeInterval,
-        minimumRefreshInterval: TimeInterval
+        minimumRefreshInterval: TimeInterval,
+        usageRefreshInterval: TimeInterval
     ) {
         self.client = client
         self.sessionStore = sessionStore
@@ -34,6 +38,7 @@ actor Sub2APIPoolMonitor {
         self.maximumPages = maximumPages
         self.staleAfter = staleAfter
         self.minimumRefreshInterval = minimumRefreshInterval
+        self.usageRefreshInterval = usageRefreshInterval
     }
 
     func savedConnection() -> Sub2APIConnection? {
@@ -107,11 +112,34 @@ actor Sub2APIPoolMonitor {
         }
 
         let fetchedAt = Date()
-        let payloads = try await client.fetchAccounts(
+        var payloads = try await client.fetchAccounts(
             baseURL: connection.baseURL,
             pageSize: pageSize,
             maximumPages: maximumPages
         )
+        let usageAccountIDs = payloads.compactMap { payload in
+            payload.parentAccountID == nil && payload.status == "active" ? payload.id : nil
+        }
+        if shouldRefreshUsage(at: fetchedAt), !usageAccountIDs.isEmpty {
+            lastUsageRefreshAt = fetchedAt
+            do {
+                try await client.refreshAccountUsage(
+                    baseURL: connection.baseURL,
+                    accountIDs: usageAccountIDs
+                )
+                payloads = try await client.fetchAccounts(
+                    baseURL: connection.baseURL,
+                    pageSize: pageSize,
+                    maximumPages: maximumPages
+                )
+            } catch Sub2APIError.incompatibleServer {
+                supportsUsageRefresh = false
+            } catch Sub2APIError.unauthorized {
+                throw Sub2APIError.unauthorized
+            } catch {
+                PrivacyLog.relay.warning("Sub2API usage refresh failed; using account snapshot")
+            }
+        }
         cachedAccountPayloads = payloads
         let snapshot = try aggregateCachedAccounts(fetchedAt: fetchedAt)
         cachedSnapshot = snapshot
@@ -174,6 +202,8 @@ actor Sub2APIPoolMonitor {
         cachedSnapshot = nil
         cachedAccountPayloads = []
         cachedConnection = nil
+        lastUsageRefreshAt = nil
+        supportsUsageRefresh = true
         hasLoadedSavedConnection = true
         try sessionStore.delete()
         try connectionStore.delete()
@@ -195,6 +225,12 @@ actor Sub2APIPoolMonitor {
             fetchedAt: fetchedAt,
             staleAfter: staleAfter
         )
+    }
+
+    private func shouldRefreshUsage(at date: Date) -> Bool {
+        guard supportsUsageRefresh else { return false }
+        guard let lastUsageRefreshAt else { return true }
+        return date.timeIntervalSince(lastUsageRefreshAt) >= usageRefreshInterval
     }
 
     private func savedTiers() throws -> [Int64: Sub2APICapacityTier] {

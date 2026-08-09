@@ -105,6 +105,69 @@ final class Sub2APIPoolMonitorTests: XCTestCase {
         XCTAssertEqual(otherServerOptions.map(\.selectedTier), [nil, nil, .plus])
     }
 
+    func testInitialRefreshProbesActivePhysicalAccountsAndUsesRefetchedSnapshot() async throws {
+        let oldTimestamp = ISO8601DateFormatter().string(
+            from: Date().addingTimeInterval(-60 * 60)
+        )
+        let freshTimestamp = ISO8601DateFormatter().string(from: Date())
+        let beforeRefresh = try [
+            decodeUsageAccount(id: 1, status: "active", updatedAt: oldTimestamp),
+            decodeUsageAccount(id: 2, status: "inactive", updatedAt: oldTimestamp),
+            decodeUsageAccount(id: 3, status: "active", parentAccountID: 1, updatedAt: oldTimestamp)
+        ]
+        let afterRefresh = try [
+            decodeUsageAccount(id: 1, status: "active", updatedAt: freshTimestamp),
+            decodeUsageAccount(id: 2, status: "inactive", updatedAt: oldTimestamp),
+            decodeUsageAccount(id: 3, status: "active", parentAccountID: 1, updatedAt: oldTimestamp)
+        ]
+        let client = RecordingAccountsClient(accountResponses: [beforeRefresh, afterRefresh])
+        let fixture = try makeUsageRefreshFixture(client: client)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        let snapshot = try await fixture.monitor.refresh(force: true)
+        let fetchCount = await client.fetchCount
+        let usageRequests = await client.usageRequests
+
+        XCTAssertEqual(fetchCount, 2)
+        XCTAssertEqual(usageRequests, [[1]])
+        XCTAssertEqual(snapshot?.staleWindowAccounts, 0)
+    }
+
+    func testUsageRefreshDoesNotRepeatWithinTenMinutes() async throws {
+        let accounts = try [decodeUsageAccount(id: 1, status: "active", updatedAt: nil)]
+        let client = RecordingAccountsClient(accountResponses: [accounts, accounts, accounts])
+        let fixture = try makeUsageRefreshFixture(client: client)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        _ = try await fixture.monitor.refresh(force: true)
+        _ = try await fixture.monitor.refresh(force: true)
+        let fetchCount = await client.fetchCount
+        let usageRequests = await client.usageRequests
+
+        XCTAssertEqual(fetchCount, 3)
+        XCTAssertEqual(usageRequests, [[1]])
+    }
+
+    func testIncompatibleUsageEndpointKeepsSnapshotAndDisablesFurtherProbes() async throws {
+        let accounts = try [decodeUsageAccount(id: 1, status: "active", updatedAt: nil)]
+        let client = RecordingAccountsClient(
+            accountResponses: [accounts, accounts],
+            usageError: .incompatibleServer
+        )
+        let fixture = try makeUsageRefreshFixture(client: client)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        let first = try await fixture.monitor.refresh(force: true)
+        let second = try await fixture.monitor.refresh(force: true)
+        let fetchCount = await client.fetchCount
+        let usageRequests = await client.usageRequests
+
+        XCTAssertEqual(first?.totalAccounts, 1)
+        XCTAssertEqual(second?.totalAccounts, 1)
+        XCTAssertEqual(fetchCount, 2)
+        XCTAssertEqual(usageRequests, [[1]])
+    }
+
     private func makeMonitor(
         client: FixedAccountsClient,
         sessionStore: FileSub2APISessionStore,
@@ -119,7 +182,8 @@ final class Sub2APIPoolMonitorTests: XCTestCase {
             pageSize: 100,
             maximumPages: 10,
             staleAfter: 900,
-            minimumRefreshInterval: 30
+            minimumRefreshInterval: 30,
+            usageRefreshInterval: 600
         )
     }
 
@@ -146,6 +210,60 @@ final class Sub2APIPoolMonitorTests: XCTestCase {
             try JSONDecoder().decode(Sub2APIAccountPayload.self, from: Data(body.utf8))
         )
         return accounts
+    }
+
+    private func decodeUsageAccount(
+        id: Int64,
+        status: String,
+        parentAccountID: Int64? = nil,
+        updatedAt: String?
+    ) throws -> Sub2APIAccountPayload {
+        var extra: [String: Any] = [
+            "codex_5h_used_percent": 25,
+            "codex_7d_used_percent": 50
+        ]
+        if let updatedAt {
+            extra["codex_usage_updated_at"] = updatedAt
+        }
+        let parent: Any = parentAccountID.map { NSNumber(value: $0) } ?? NSNull()
+        let data = try JSONSerialization.data(withJSONObject: [
+            "id": NSNumber(value: id),
+            "status": status,
+            "schedulable": true,
+            "parent_account_id": parent,
+            "credentials": ["plan_type": "plus"],
+            "extra": extra
+        ])
+        return try JSONDecoder().decode(Sub2APIAccountPayload.self, from: data)
+    }
+
+    private func makeUsageRefreshFixture(
+        client: RecordingAccountsClient
+    ) throws -> (monitor: Sub2APIPoolMonitor, directory: URL) {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VibeTokenUsageRefreshTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let baseURL = try XCTUnwrap(URL(string: "https://relay.example.com/api/v1"))
+        let sessionStore = FileSub2APISessionStore(supportDirectory: directory)
+        let connectionStore = FileSub2APIConnectionStore(supportDirectory: directory)
+        try sessionStore.save(Sub2APISession(accessToken: "test", refreshToken: nil, expiresAt: nil))
+        try connectionStore.save(Sub2APIConnection(baseURL: baseURL, email: "admin@example.com"))
+        return (
+            Sub2APIPoolMonitor(
+                client: client,
+                sessionStore: sessionStore,
+                connectionStore: connectionStore,
+                capacityConfigurationStore: FileSub2APICapacityConfigurationStore(
+                    supportDirectory: directory
+                ),
+                pageSize: 100,
+                maximumPages: 10,
+                staleAfter: 15 * 60,
+                minimumRefreshInterval: 0,
+                usageRefreshInterval: 10 * 60
+            ),
+            directory
+        )
     }
 }
 
@@ -174,5 +292,51 @@ private actor FixedAccountsClient: Sub2APIClientServing {
         maximumPages: Int
     ) async throws -> [Sub2APIAccountPayload] {
         accounts
+    }
+
+    func refreshAccountUsage(baseURL: URL, accountIDs: [Int64]) async throws {}
+}
+
+private actor RecordingAccountsClient: Sub2APIClientServing {
+    private var accountResponses: [[Sub2APIAccountPayload]]
+    private let fallbackAccounts: [Sub2APIAccountPayload]
+    private let usageError: Sub2APIError?
+    private(set) var fetchCount = 0
+    private(set) var usageRequests: [[Int64]] = []
+
+    init(
+        accountResponses: [[Sub2APIAccountPayload]],
+        usageError: Sub2APIError? = nil
+    ) {
+        self.accountResponses = accountResponses
+        fallbackAccounts = accountResponses.last ?? []
+        self.usageError = usageError
+    }
+
+    func login(baseURL: URL, email: String, password: String) async throws -> Sub2APILoginResult {
+        throw Sub2APIError.serverUnavailable
+    }
+
+    func completeTwoFactor(
+        baseURL: URL,
+        tempToken: String,
+        code: String
+    ) async throws -> Sub2APISession {
+        throw Sub2APIError.serverUnavailable
+    }
+
+    func fetchAccounts(
+        baseURL: URL,
+        pageSize: Int,
+        maximumPages: Int
+    ) async throws -> [Sub2APIAccountPayload] {
+        fetchCount += 1
+        guard !accountResponses.isEmpty else { return fallbackAccounts }
+        return accountResponses.removeFirst()
+    }
+
+    func refreshAccountUsage(baseURL: URL, accountIDs: [Int64]) async throws {
+        usageRequests.append(accountIDs)
+        if let usageError { throw usageError }
     }
 }

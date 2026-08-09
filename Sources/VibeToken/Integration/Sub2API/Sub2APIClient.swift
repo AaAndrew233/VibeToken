@@ -10,6 +10,7 @@ protocol Sub2APIClientServing: Sendable {
     func login(baseURL: URL, email: String, password: String) async throws -> Sub2APILoginResult
     func completeTwoFactor(baseURL: URL, tempToken: String, code: String) async throws -> Sub2APISession
     func fetchAccounts(baseURL: URL, pageSize: Int, maximumPages: Int) async throws -> [Sub2APIAccountPayload]
+    func refreshAccountUsage(baseURL: URL, accountIDs: [Int64]) async throws
 }
 
 actor Sub2APIClient: Sub2APIClientServing {
@@ -142,6 +143,130 @@ actor Sub2APIClient: Sub2APIClientServing {
         throw Sub2APIError.tooManyAccounts
     }
 
+    func refreshAccountUsage(baseURL: URL, accountIDs: [Int64]) async throws {
+        let normalizedIDs = Array(Set(accountIDs.filter { $0 > 0 })).sorted()
+        guard !normalizedIDs.isEmpty else { return }
+
+        let body = try encoder.encode(BatchUsageRequest(accountIDs: normalizedIDs, force: false))
+        var session = try await validSession(baseURL: baseURL)
+        var retriedAuthorization = false
+
+        while true {
+            do {
+                let _: BatchUsageResponse = try await send(
+                    baseURL: baseURL,
+                    path: "admin/accounts/usage/batch",
+                    method: "POST",
+                    body: body,
+                    accessToken: session.accessToken
+                )
+                return
+            } catch Sub2APIError.unauthorized {
+                guard !retriedAuthorization else { throw Sub2APIError.unauthorized }
+                session = try await refreshSession(baseURL: baseURL, current: session)
+                retriedAuthorization = true
+            } catch Sub2APIError.incompatibleServer {
+                break
+            }
+        }
+
+        try await refreshReleasedAccountUsage(
+            baseURL: baseURL,
+            accountIDs: normalizedIDs,
+            session: session,
+            authorizationAlreadyRetried: retriedAuthorization
+        )
+    }
+
+    private func refreshReleasedAccountUsage(
+        baseURL: URL,
+        accountIDs: [Int64],
+        session initialSession: Sub2APISession,
+        authorizationAlreadyRetried: Bool
+    ) async throws {
+        var session = initialSession
+        var pendingAccountIDs = accountIDs
+        var retriedAuthorization = authorizationAlreadyRetried
+
+        while !pendingAccountIDs.isEmpty {
+            let results = try await refreshReleasedAccountUsage(
+                baseURL: baseURL,
+                accountIDs: pendingAccountIDs,
+                accessToken: session.accessToken
+            )
+            if results.contains(where: { $0.isIncompatibleServer }) {
+                throw Sub2APIError.incompatibleServer
+            }
+
+            let unauthorizedAccountIDs = results.compactMap(\.unauthorizedAccountID)
+            guard !unauthorizedAccountIDs.isEmpty else { return }
+            guard !retriedAuthorization else { throw Sub2APIError.unauthorized }
+
+            session = try await refreshSession(baseURL: baseURL, current: session)
+            pendingAccountIDs = unauthorizedAccountIDs
+            retriedAuthorization = true
+        }
+    }
+
+    private func refreshReleasedAccountUsage(
+        baseURL: URL,
+        accountIDs: [Int64],
+        accessToken: String
+    ) async throws -> [AccountUsageRefreshResult] {
+        var results: [AccountUsageRefreshResult] = []
+        for chunkStart in stride(from: 0, to: accountIDs.count, by: 6) {
+            let chunkEnd = min(chunkStart + 6, accountIDs.count)
+            let chunk = accountIDs[chunkStart..<chunkEnd]
+            let chunkResults = try await withThrowingTaskGroup(
+                of: AccountUsageRefreshResult.self,
+                returning: [AccountUsageRefreshResult].self
+            ) { group in
+                for accountID in chunk {
+                    group.addTask {
+                        try await self.refreshReleasedAccountUsage(
+                            baseURL: baseURL,
+                            accountID: accountID,
+                            accessToken: accessToken
+                        )
+                    }
+                }
+
+                var collected: [AccountUsageRefreshResult] = []
+                for try await result in group {
+                    collected.append(result)
+                }
+                return collected
+            }
+            results.append(contentsOf: chunkResults)
+        }
+        return results
+    }
+
+    private func refreshReleasedAccountUsage(
+        baseURL: URL,
+        accountID: Int64,
+        accessToken: String
+    ) async throws -> AccountUsageRefreshResult {
+        do {
+            let _: AccountUsageRefreshResponse = try await send(
+                baseURL: baseURL,
+                path: "admin/accounts/\(accountID)/usage",
+                method: "GET",
+                queryItems: [URLQueryItem(name: "source", value: "active")],
+                accessToken: accessToken
+            )
+            return .refreshed
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch Sub2APIError.unauthorized {
+            return .unauthorized(accountID)
+        } catch Sub2APIError.incompatibleServer {
+            return .incompatibleServer
+        } catch {
+            return .failed
+        }
+    }
+
     private func validSession(baseURL: URL) async throws -> Sub2APISession {
         guard let session = try sessionStore.load() else { throw Sub2APIError.unauthorized }
         if let expiresAt = session.expiresAt,
@@ -232,6 +357,9 @@ actor Sub2APIClient: Sub2APIClientServing {
         if http.statusCode == 401 {
             throw authenticationError
         }
+        if http.statusCode == 404 {
+            throw Sub2APIError.incompatibleServer
+        }
 
         let envelope: Sub2APIEnvelope<Payload>
         do {
@@ -250,7 +378,6 @@ actor Sub2APIClient: Sub2APIClientServing {
             throw authenticationError
         }
         guard (200..<300).contains(http.statusCode), envelope.code == 0 else {
-            if http.statusCode == 404 { throw Sub2APIError.incompatibleServer }
             throw Sub2APIError.serverUnavailable
         }
         guard let payload = envelope.data else { throw Sub2APIError.unexpectedResponse }
@@ -300,5 +427,36 @@ private struct RefreshRequest: Encodable {
 
     enum CodingKeys: String, CodingKey {
         case refreshToken = "refresh_token"
+    }
+}
+
+private struct BatchUsageRequest: Encodable {
+    let accountIDs: [Int64]
+    let force: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case accountIDs = "account_ids"
+        case force
+    }
+}
+
+private struct BatchUsageResponse: Decodable, Sendable {}
+
+private struct AccountUsageRefreshResponse: Decodable, Sendable {}
+
+private enum AccountUsageRefreshResult: Sendable {
+    case refreshed
+    case unauthorized(Int64)
+    case incompatibleServer
+    case failed
+
+    var unauthorizedAccountID: Int64? {
+        guard case .unauthorized(let accountID) = self else { return nil }
+        return accountID
+    }
+
+    var isIncompatibleServer: Bool {
+        guard case .incompatibleServer = self else { return false }
+        return true
     }
 }

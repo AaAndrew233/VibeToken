@@ -4,6 +4,17 @@ import XCTest
 
 @MainActor
 final class Sub2APIStartupTests: XCTestCase {
+    func testSub2APIRefreshDefaultsMatchOfficialCadence() {
+        let configuration = makeTestConfiguration(
+            dataRoot: FileManager.default.temporaryDirectory
+        )
+
+        XCTAssertEqual(configuration.sub2APISnapshotStaleSeconds, 8 * 60 * 60)
+        XCTAssertEqual(configuration.sub2APIMinimumRefreshSeconds, 30)
+        XCTAssertEqual(configuration.sub2APIPollingInterval, .seconds(30))
+        XCTAssertEqual(configuration.sub2APIUsageRefreshIntervalSeconds, 10 * 60)
+    }
+
     func testFirstRefreshRestoresSavedSub2APIConnection() async throws {
         let database = try VibeTokenDatabase.inMemory()
         let codexHome = FileManager.default.temporaryDirectory
@@ -28,7 +39,8 @@ final class Sub2APIStartupTests: XCTestCase {
             pageSize: 100,
             maximumPages: 100,
             staleAfter: 15 * 60,
-            minimumRefreshInterval: 30
+            minimumRefreshInterval: 30,
+            usageRefreshInterval: 10 * 60
         )
         let configuration = AppConfiguration(
             codexHome: codexHome,
@@ -57,6 +69,7 @@ final class Sub2APIStartupTests: XCTestCase {
             ),
             sub2APIPoolMonitor: poolMonitor,
             refreshInterval: .seconds(5),
+            sub2APIRefreshInterval: .seconds(30),
             fileEventDebounceMilliseconds: 100,
             costEstimator: CostEstimator(catalog: .officialAPI)
         )
@@ -72,6 +85,54 @@ final class Sub2APIStartupTests: XCTestCase {
         XCTAssertEqual(restoredConnection, connection)
         XCTAssertEqual(connectionStore.loadCount, 1)
         XCTAssertEqual(sessionStore.loadCount, 1)
+    }
+
+    func testSub2APIPollingContinuesWhenUsageRefreshModeIsManual() async throws {
+        let database = try VibeTokenDatabase.inMemory()
+        let connection = Sub2APIConnection(
+            baseURL: try XCTUnwrap(URL(string: "https://relay.example.com/api/v1")),
+            email: "admin@example.com"
+        )
+        let client = CountingSub2APIClient()
+        let poolMonitor = Sub2APIPoolMonitor(
+            client: client,
+            sessionStore: CountingSessionStore(
+                session: Sub2APISession(accessToken: "test", refreshToken: nil, expiresAt: nil)
+            ),
+            connectionStore: CountingConnectionStore(connection: connection),
+            capacityConfigurationStore: MemoryCapacityConfigurationStore(),
+            pageSize: 100,
+            maximumPages: 100,
+            staleAfter: 15 * 60,
+            minimumRefreshInterval: 0,
+            usageRefreshInterval: 10 * 60
+        )
+        let repository = UsageRepository(database: database)
+        let state = AppState(
+            ingestionCoordinator: UsageIngestionCoordinator(
+                sources: [],
+                repository: repository,
+                maximumWatchFiles: 64
+            ),
+            sub2APIPoolMonitor: poolMonitor,
+            refreshInterval: .seconds(30),
+            sub2APIRefreshInterval: .milliseconds(20),
+            fileEventDebounceMilliseconds: 100,
+            costEstimator: CostEstimator(catalog: .officialAPI)
+        )
+        state.refreshMode = .manual
+
+        state.startMonitoring()
+        try await Task.sleep(for: .milliseconds(90))
+        state.stopMonitoring()
+
+        // 取消任务不会同步等待已在途的 actor 调用返回。
+        try await Task.sleep(for: .milliseconds(50))
+        let fetchCountAfterStop = await client.fetchCount
+        XCTAssertGreaterThanOrEqual(fetchCountAfterStop, 2)
+        try await Task.sleep(for: .milliseconds(50))
+        let finalFetchCount = await client.fetchCount
+        XCTAssertEqual(finalFetchCount, fetchCountAfterStop)
     }
 }
 
@@ -100,6 +161,27 @@ private actor UnusedSub2APIClient: Sub2APIClientServing {
     func fetchAccounts(baseURL: URL, pageSize: Int, maximumPages: Int) async throws -> [Sub2APIAccountPayload] {
         []
     }
+
+    func refreshAccountUsage(baseURL: URL, accountIDs: [Int64]) async throws {}
+}
+
+private actor CountingSub2APIClient: Sub2APIClientServing {
+    private(set) var fetchCount = 0
+
+    func login(baseURL: URL, email: String, password: String) async throws -> Sub2APILoginResult {
+        throw Sub2APIError.serverUnavailable
+    }
+
+    func completeTwoFactor(baseURL: URL, tempToken: String, code: String) async throws -> Sub2APISession {
+        throw Sub2APIError.serverUnavailable
+    }
+
+    func fetchAccounts(baseURL: URL, pageSize: Int, maximumPages: Int) async throws -> [Sub2APIAccountPayload] {
+        fetchCount += 1
+        return []
+    }
+
+    func refreshAccountUsage(baseURL: URL, accountIDs: [Int64]) async throws {}
 }
 
 private final class CountingSessionStore: Sub2APISessionStoring, @unchecked Sendable {

@@ -171,6 +171,236 @@ final class Sub2APIClientTests: XCTestCase {
         XCTAssertNil(second.fiveHourUsedPercent)
     }
 
+    func testRefreshAccountUsagePostsNormalizedIDsWithoutForcing() async throws {
+        let loader = StubLoader(responses: [
+            response(
+                status: 200,
+                body: #"{"code":0,"message":"success","data":{"requested":2}}"#
+            )
+        ])
+        let store = MemorySessionStore(
+            session: Sub2APISession(accessToken: "access", refreshToken: nil, expiresAt: nil)
+        )
+        let client = Sub2APIClient(loader: loader, sessionStore: store, requestTimeout: 2)
+
+        try await client.refreshAccountUsage(
+            baseURL: try XCTUnwrap(URL(string: "https://relay.example.com/api/v1")),
+            accountIDs: [7, 2, 7, 0, -1]
+        )
+
+        let requests = await loader.requests()
+        let request = try XCTUnwrap(requests.first)
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.path, "/api/v1/admin/accounts/usage/batch")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer access")
+        let body = try XCTUnwrap(request.httpBody)
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        XCTAssertEqual(payload["account_ids"] as? [Int], [2, 7])
+        XCTAssertEqual(payload["force"] as? Bool, false)
+    }
+
+    func testRefreshAccountUsageRefreshesExpiredAuthorizationOnce() async throws {
+        let loader = StubLoader(responses: [
+            response(status: 401, body: #"{"code":401,"message":"expired"}"#),
+            response(
+                status: 200,
+                body: #"{"code":0,"message":"success","data":{"access_token":"new-access","refresh_token":"new-refresh","expires_in":3600,"token_type":"Bearer"}}"#
+            ),
+            response(status: 200, body: #"{"code":0,"message":"success","data":{}}"#)
+        ])
+        let store = MemorySessionStore(
+            session: Sub2APISession(
+                accessToken: "old-access",
+                refreshToken: "refresh",
+                expiresAt: nil
+            )
+        )
+        let client = Sub2APIClient(loader: loader, sessionStore: store, requestTimeout: 2)
+
+        try await client.refreshAccountUsage(
+            baseURL: try XCTUnwrap(URL(string: "https://relay.example.com/api/v1")),
+            accountIDs: [4]
+        )
+
+        let requests = await loader.requests()
+        XCTAssertEqual(requests.count, 3)
+        XCTAssertEqual(requests[0].value(forHTTPHeaderField: "Authorization"), "Bearer old-access")
+        XCTAssertEqual(requests[1].url?.path, "/api/v1/auth/refresh")
+        XCTAssertNil(requests[1].value(forHTTPHeaderField: "Authorization"))
+        XCTAssertEqual(requests[2].url?.path, "/api/v1/admin/accounts/usage/batch")
+        XCTAssertEqual(requests[2].value(forHTTPHeaderField: "Authorization"), "Bearer new-access")
+        XCTAssertEqual(try store.load()?.accessToken, "new-access")
+    }
+
+    func testNonJSONNotFoundIsClassifiedAsIncompatibleServerBeforeDecoding() async throws {
+        let loader = StubLoader(responses: [
+            response(status: 404, body: "Not Found")
+        ])
+        let store = MemorySessionStore(
+            session: Sub2APISession(accessToken: "access", refreshToken: nil, expiresAt: nil)
+        )
+        let client = Sub2APIClient(loader: loader, sessionStore: store, requestTimeout: 2)
+
+        do {
+            _ = try await client.fetchAccounts(
+                baseURL: try XCTUnwrap(URL(string: "https://relay.example.com/api/v1")),
+                pageSize: 100,
+                maximumPages: 1
+            )
+            XCTFail("Expected incompatible server")
+        } catch let error as Sub2APIError {
+            XCTAssertEqual(error, .incompatibleServer)
+        }
+    }
+
+    func testRefreshAccountUsageFallsBackToReleasedPerAccountEndpoint() async throws {
+        let loader = StubLoader(responses: [
+            response(status: 404, body: "Not Found"),
+            response(status: 200, body: usageResponse),
+            response(status: 200, body: usageResponse)
+        ])
+        let store = MemorySessionStore(
+            session: Sub2APISession(accessToken: "access", refreshToken: nil, expiresAt: nil)
+        )
+        let client = Sub2APIClient(loader: loader, sessionStore: store, requestTimeout: 2)
+
+        try await client.refreshAccountUsage(
+            baseURL: try XCTUnwrap(URL(string: "https://relay.example.com/api/v1")),
+            accountIDs: [7, 2]
+        )
+
+        let requests = await loader.requests()
+        XCTAssertEqual(requests.count, 3)
+        XCTAssertEqual(requests[0].url?.path, "/api/v1/admin/accounts/usage/batch")
+
+        let fallbackRequests = Array(requests.dropFirst())
+        XCTAssertEqual(
+            Set(fallbackRequests.compactMap(\.url?.path)),
+            Set(["/api/v1/admin/accounts/2/usage", "/api/v1/admin/accounts/7/usage"])
+        )
+        for request in fallbackRequests {
+            XCTAssertEqual(request.httpMethod, "GET")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer access")
+            let queryItems = URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.queryItems
+            XCTAssertEqual(queryItems, [URLQueryItem(name: "source", value: "active")])
+            XCTAssertNil(queryItems?.first(where: { $0.name == "force" }))
+        }
+    }
+
+    func testPerAccountFallbackRefreshesAuthorizationOnlyOnce() async throws {
+        let loader = StubLoader(responses: [
+            response(status: 404, body: "Not Found"),
+            response(status: 401, body: #"{"code":401,"message":"expired"}"#),
+            response(
+                status: 200,
+                body: #"{"code":0,"message":"success","data":{"access_token":"new-access","refresh_token":"new-refresh","expires_in":3600,"token_type":"Bearer"}}"#
+            ),
+            response(status: 200, body: usageResponse)
+        ])
+        let store = MemorySessionStore(
+            session: Sub2APISession(
+                accessToken: "old-access",
+                refreshToken: "refresh",
+                expiresAt: nil
+            )
+        )
+        let client = Sub2APIClient(loader: loader, sessionStore: store, requestTimeout: 2)
+
+        try await client.refreshAccountUsage(
+            baseURL: try XCTUnwrap(URL(string: "https://relay.example.com/api/v1")),
+            accountIDs: [4]
+        )
+
+        let requests = await loader.requests()
+        XCTAssertEqual(requests.count, 4)
+        XCTAssertEqual(requests.filter { $0.url?.path == "/api/v1/auth/refresh" }.count, 1)
+        XCTAssertEqual(requests[1].value(forHTTPHeaderField: "Authorization"), "Bearer old-access")
+        XCTAssertEqual(requests[3].value(forHTTPHeaderField: "Authorization"), "Bearer new-access")
+    }
+
+    func testPerAccountFallbackIgnoresOneAccountFailure() async throws {
+        let loader = StubLoader(responses: [
+            response(status: 404, body: "Not Found"),
+            response(status: 500, body: #"{"code":500,"message":"probe failed"}"#),
+            response(status: 200, body: usageResponse)
+        ])
+        let store = MemorySessionStore(
+            session: Sub2APISession(accessToken: "access", refreshToken: nil, expiresAt: nil)
+        )
+        let client = Sub2APIClient(loader: loader, sessionStore: store, requestTimeout: 2)
+
+        try await client.refreshAccountUsage(
+            baseURL: try XCTUnwrap(URL(string: "https://relay.example.com/api/v1")),
+            accountIDs: [1, 2]
+        )
+
+        let requests = await loader.requests()
+        XCTAssertEqual(requests.count, 3)
+        XCTAssertEqual(Set(requests.dropFirst().compactMap(\.url?.path)), Set([
+            "/api/v1/admin/accounts/1/usage",
+            "/api/v1/admin/accounts/2/usage"
+        ]))
+    }
+
+    func testMissingPerAccountEndpointRemainsIncompatible() async throws {
+        let loader = StubLoader(responses: [
+            response(status: 404, body: "Not Found"),
+            response(status: 404, body: "Not Found")
+        ])
+        let store = MemorySessionStore(
+            session: Sub2APISession(accessToken: "access", refreshToken: nil, expiresAt: nil)
+        )
+        let client = Sub2APIClient(loader: loader, sessionStore: store, requestTimeout: 2)
+
+        do {
+            try await client.refreshAccountUsage(
+                baseURL: try XCTUnwrap(URL(string: "https://relay.example.com/api/v1")),
+                accountIDs: [4]
+            )
+            XCTFail("Expected incompatible server")
+        } catch let error as Sub2APIError {
+            XCTAssertEqual(error, .incompatibleServer)
+        }
+
+        let requests = await loader.requests()
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertEqual(requests.last?.url?.path, "/api/v1/admin/accounts/4/usage")
+    }
+
+    func testPerAccountFallbackLimitsConcurrentRequestsToSix() async throws {
+        let loader = StubLoader(
+            responses: [
+                response(status: 404, body: "Not Found"),
+                response(status: 200, body: usageResponse),
+                response(status: 200, body: usageResponse),
+                response(status: 200, body: usageResponse),
+                response(status: 200, body: usageResponse),
+                response(status: 200, body: usageResponse),
+                response(status: 200, body: usageResponse),
+                response(status: 200, body: usageResponse)
+            ],
+            responseDelayNanoseconds: 50_000_000
+        )
+        let store = MemorySessionStore(
+            session: Sub2APISession(accessToken: "access", refreshToken: nil, expiresAt: nil)
+        )
+        let client = Sub2APIClient(loader: loader, sessionStore: store, requestTimeout: 2)
+
+        try await client.refreshAccountUsage(
+            baseURL: try XCTUnwrap(URL(string: "https://relay.example.com/api/v1")),
+            accountIDs: Array(1...7)
+        )
+
+        let peakRequests = await loader.peakConcurrentRequests()
+        XCTAssertEqual(peakRequests, 6)
+    }
+
+    private var usageResponse: String {
+        #"{"code":0,"message":"success","data":{"source":"active"}}"#
+    }
+
     private func response(status: Int, body: String) -> StubLoader.Response {
         StubLoader.Response(status: status, data: Data(body.utf8))
     }
@@ -184,13 +414,23 @@ private actor StubLoader: Sub2APIHTTPDataLoading {
 
     private var queued: [Response]
     private var captured: [URLRequest] = []
+    private let responseDelayNanoseconds: UInt64
+    private var activeRequests = 0
+    private var peakRequests = 0
 
-    init(responses: [Response]) {
+    init(responses: [Response], responseDelayNanoseconds: UInt64 = 0) {
         queued = responses
+        self.responseDelayNanoseconds = responseDelayNanoseconds
     }
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         captured.append(request)
+        activeRequests += 1
+        peakRequests = max(peakRequests, activeRequests)
+        defer { activeRequests -= 1 }
+        if responseDelayNanoseconds > 0 {
+            try await Task.sleep(nanoseconds: responseDelayNanoseconds)
+        }
         guard !queued.isEmpty else { throw URLError(.badServerResponse) }
         let next = queued.removeFirst()
         let response = HTTPURLResponse(
@@ -203,6 +443,8 @@ private actor StubLoader: Sub2APIHTTPDataLoading {
     }
 
     func requests() -> [URLRequest] { captured }
+
+    func peakConcurrentRequests() -> Int { peakRequests }
 }
 
 private final class MemorySessionStore: Sub2APISessionStoring, @unchecked Sendable {

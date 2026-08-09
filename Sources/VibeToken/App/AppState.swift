@@ -42,11 +42,14 @@ final class AppState {
     @ObservationIgnored private let ingestionCoordinator: UsageIngestionCoordinator
     @ObservationIgnored private let sub2APIPoolMonitor: Sub2APIPoolMonitor
     @ObservationIgnored private let refreshInterval: Duration
+    @ObservationIgnored private let sub2APIRefreshInterval: Duration
     @ObservationIgnored private let costEstimator: CostEstimator
     @ObservationIgnored private let fileObserver: CodexFileChangeObserver
     @ObservationIgnored private var monitorTask: Task<Void, Never>?
+    @ObservationIgnored private var sub2APIMonitorTask: Task<Void, Never>?
     @ObservationIgnored private var isMonitoringStarted = false
     @ObservationIgnored private var refreshRequestedWhileBusy = false
+    @ObservationIgnored private var isSub2APIRefreshInFlight = false
     @ObservationIgnored private var isSub2APIVisualFixture = false
     @ObservationIgnored private var hasAttemptedSub2APIRestore = false
     @ObservationIgnored var onMenuBarSummaryChange: ((Int64?, MoneyAmount?, Locale) -> Void)?
@@ -59,12 +62,14 @@ final class AppState {
         ingestionCoordinator: UsageIngestionCoordinator,
         sub2APIPoolMonitor: Sub2APIPoolMonitor,
         refreshInterval: Duration,
+        sub2APIRefreshInterval: Duration,
         fileEventDebounceMilliseconds: Int,
         costEstimator: CostEstimator
     ) {
         self.ingestionCoordinator = ingestionCoordinator
         self.sub2APIPoolMonitor = sub2APIPoolMonitor
         self.refreshInterval = refreshInterval
+        self.sub2APIRefreshInterval = sub2APIRefreshInterval
         self.costEstimator = costEstimator
         fileObserver = CodexFileChangeObserver(
             debounceMilliseconds: fileEventDebounceMilliseconds
@@ -84,6 +89,7 @@ final class AppState {
         guard !isMonitoringStarted else { return }
         isMonitoringStarted = true
         restartMonitoring()
+        startSub2APIMonitoring()
     }
 
     private func restartMonitoring() {
@@ -109,10 +115,29 @@ final class AppState {
         }
     }
 
+    private func startSub2APIMonitoring() {
+        sub2APIMonitorTask?.cancel()
+        let interval = sub2APIRefreshInterval
+        sub2APIMonitorTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: interval)
+                } catch {
+                    return
+                }
+                guard let self else { return }
+                await restoreSub2APIConnectionIfNeeded()
+                _ = await refreshSub2APIPool(force: true, displaysProgress: false)
+            }
+        }
+    }
+
     func stopMonitoring() {
         isMonitoringStarted = false
         monitorTask?.cancel()
         monitorTask = nil
+        sub2APIMonitorTask?.cancel()
+        sub2APIMonitorTask = nil
         fileObserver.stop()
     }
 
@@ -447,13 +472,19 @@ final class AppState {
     }
 
     @discardableResult
-    private func refreshSub2APIPool(force: Bool) async -> Bool {
+    private func refreshSub2APIPool(
+        force: Bool,
+        displaysProgress: Bool = true
+    ) async -> Bool {
         if isSub2APIVisualFixture { return true }
         guard sub2APIConnection != nil else {
             sub2APIStatus = .disconnected
             return true
         }
-        if sub2APIPoolSnapshot == nil || force {
+        guard !isSub2APIRefreshInFlight else { return true }
+        isSub2APIRefreshInFlight = true
+        defer { isSub2APIRefreshInFlight = false }
+        if displaysProgress && (sub2APIPoolSnapshot == nil || force) {
             sub2APIStatus = .syncing
         }
         do {

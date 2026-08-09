@@ -19,8 +19,10 @@ struct AppConfiguration: Sendable {
     let sub2APIRequestTimeoutSeconds: TimeInterval = 15
     let sub2APIPageSize: Int = 100
     let sub2APIMaximumPages: Int = 100
-    let sub2APISnapshotStaleSeconds: TimeInterval = 15 * 60
+    let sub2APISnapshotStaleSeconds: TimeInterval = 8 * 60 * 60
     let sub2APIMinimumRefreshSeconds: TimeInterval = 30
+    let sub2APIPollingInterval: Duration = .seconds(30)
+    let sub2APIUsageRefreshIntervalSeconds: TimeInterval = 10 * 60
 
     static func live(
         environment: [String: String] = ProcessInfo.processInfo.environment,

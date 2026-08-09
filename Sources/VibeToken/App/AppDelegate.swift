@@ -104,12 +104,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 pageSize: configuration.sub2APIPageSize,
                 maximumPages: configuration.sub2APIMaximumPages,
                 staleAfter: configuration.sub2APISnapshotStaleSeconds,
-                minimumRefreshInterval: configuration.sub2APIMinimumRefreshSeconds
+                minimumRefreshInterval: configuration.sub2APIMinimumRefreshSeconds,
+                usageRefreshInterval: configuration.sub2APIUsageRefreshIntervalSeconds
             )
             let state = AppState(
                 ingestionCoordinator: ingestionCoordinator,
                 sub2APIPoolMonitor: sub2APIPoolMonitor,
                 refreshInterval: configuration.refreshInterval,
+                sub2APIRefreshInterval: configuration.sub2APIPollingInterval,
                 fileEventDebounceMilliseconds: configuration.fileEventDebounceMilliseconds,
                 costEstimator: CostEstimator(catalog: .officialAPI)
             )
