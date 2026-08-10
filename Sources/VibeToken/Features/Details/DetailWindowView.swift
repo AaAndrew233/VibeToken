@@ -94,7 +94,7 @@ private struct OverviewView: View {
                     }
                     Spacer()
                     Button {
-                        Task { await state.refresh() }
+                        Task { await state.refresh(forceRemote: true) }
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }

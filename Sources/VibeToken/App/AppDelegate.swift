@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var visualTestWindow: NSWindow?
     private var state: AppState?
     private var menuBarSummaryAnimator: MenuBarSummaryAnimator?
+    private var wakeObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -122,6 +123,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             configureStatusItem(state: state)
             configurePopover(state: state)
             state.startMonitoring()
+            wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.didWakeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak state] _ in
+                Task { @MainActor in
+                    _ = await state?.refresh(forceRemote: true)
+                }
+            }
             scheduleVisualTestSurfaceIfNeeded()
             PrivacyLog.lifecycle.info("VibeToken started")
         } catch {
@@ -134,6 +144,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         state?.stopMonitoring()
         menuBarSummaryAnimator?.stop()
         outsideClickMonitor.stop()
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+        }
     }
 
     private func configureStatusItem(state: AppState) {

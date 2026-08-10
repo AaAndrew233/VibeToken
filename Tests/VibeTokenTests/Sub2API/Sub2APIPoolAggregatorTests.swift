@@ -42,6 +42,7 @@ final class Sub2APIPoolAggregatorTests: XCTestCase {
         XCTAssertEqual(snapshot.sevenDay.remainingEquivalentAccounts, 0.8, accuracy: 0.000_001)
         XCTAssertEqual(snapshot.plans.first?.plan, "Pro")
         XCTAssertEqual(snapshot.plans.first?.accountCount, 2)
+        XCTAssertEqual(snapshot.plans.first?.availableAccountCount, 1)
     }
 
     func testClampsInvalidUpstreamPercentages() {
@@ -122,6 +123,10 @@ final class Sub2APIPoolAggregatorTests: XCTestCase {
         XCTAssertEqual(snapshot.effectiveCapacity.totalAvailableRemainingFraction, 0.79)
         XCTAssertEqual(snapshot.effectiveCapacity.availableFiveHourRemainingFraction, 1)
         XCTAssertEqual(snapshot.effectiveCapacity.availableSevenDayRemainingFraction, 0.79)
+        XCTAssertEqual(
+            snapshot.plans.map { "\($0.plan):\($0.availableAccountCount)/\($0.accountCount)" },
+            ["Plus:1/7", "Pro:0/4"]
+        )
         XCTAssertEqual(
             try XCTUnwrap(snapshot.effectiveCapacity.poolRemainingFraction),
             0.79 / 11,
@@ -339,6 +344,10 @@ final class Sub2APIPoolAggregatorTests: XCTestCase {
         )
 
         XCTAssertEqual(snapshot.totalCapacityAccounts, 11)
+        XCTAssertEqual(
+            snapshot.plans.map { "\($0.plan):\($0.availableAccountCount)/\($0.accountCount)" },
+            ["Plus:7/7", "Pro:4/4"]
+        )
         XCTAssertEqual(snapshot.totalCapacityWeight, 87, accuracy: 0.000_001)
         XCTAssertEqual(snapshot.effectiveCapacity.remainingEquivalentAccounts, 87, accuracy: 0.000_001)
         XCTAssertEqual(try XCTUnwrap(snapshot.displayedRemainingFraction), 1, accuracy: 0.000_001)

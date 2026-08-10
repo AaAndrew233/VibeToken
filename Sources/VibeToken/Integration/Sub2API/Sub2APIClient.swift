@@ -14,6 +14,9 @@ protocol Sub2APIClientServing: Sendable {
 }
 
 actor Sub2APIClient: Sub2APIClientServing {
+    private static let batchUsageRefreshRequestTimeout: TimeInterval = 45
+    private static let accountUsageRefreshRequestTimeout: TimeInterval = 20
+
     private let loader: any Sub2APIHTTPDataLoading
     private let sessionStore: any Sub2APISessionStoring
     private let requestTimeout: TimeInterval
@@ -147,19 +150,31 @@ actor Sub2APIClient: Sub2APIClientServing {
         let normalizedIDs = Array(Set(accountIDs.filter { $0 > 0 })).sorted()
         guard !normalizedIDs.isEmpty else { return }
 
-        let body = try encoder.encode(BatchUsageRequest(accountIDs: normalizedIDs, force: false))
+        let body = try encoder.encode(BatchUsageRequest(accountIDs: normalizedIDs, force: true))
         var session = try await validSession(baseURL: baseURL)
         var retriedAuthorization = false
 
         while true {
             do {
-                let _: BatchUsageResponse = try await send(
+                let response: BatchUsageResponse = try await send(
                     baseURL: baseURL,
                     path: "admin/accounts/usage/batch",
                     method: "POST",
                     body: body,
-                    accessToken: session.accessToken
+                    accessToken: session.accessToken,
+                    requestTimeoutOverride: Self.batchUsageRefreshRequestTimeout
                 )
+                let requestedAccountIDs = Set(normalizedIDs)
+                let failedAccountIDs = response.errorAccountIDs.intersection(requestedAccountIDs)
+                if !failedAccountIDs.isEmpty {
+                    PrivacyLog.relay.warning(
+                        "Sub2API batch usage refresh reported \(failedAccountIDs.count, privacy: .public) account errors"
+                    )
+                    throw Sub2APIError.usageRefreshIncomplete(
+                        refreshed: response.usageAccountIDs.intersection(requestedAccountIDs).count,
+                        total: requestedAccountIDs.count
+                    )
+                }
                 return
             } catch Sub2APIError.unauthorized {
                 guard !retriedAuthorization else { throw Sub2APIError.unauthorized }
@@ -186,6 +201,7 @@ actor Sub2APIClient: Sub2APIClientServing {
     ) async throws {
         var session = initialSession
         var pendingAccountIDs = accountIDs
+        var refreshedAccountIDs: Set<Int64> = []
         var retriedAuthorization = authorizationAlreadyRetried
 
         while !pendingAccountIDs.isEmpty {
@@ -196,6 +212,13 @@ actor Sub2APIClient: Sub2APIClientServing {
             )
             if results.contains(where: { $0.isIncompatibleServer }) {
                 throw Sub2APIError.incompatibleServer
+            }
+            refreshedAccountIDs.formUnion(results.compactMap(\.refreshedAccountID))
+            if results.contains(where: { $0.failedAccountID != nil }) {
+                throw Sub2APIError.usageRefreshIncomplete(
+                    refreshed: refreshedAccountIDs.count,
+                    total: accountIDs.count
+                )
             }
 
             let unauthorizedAccountIDs = results.compactMap(\.unauthorizedAccountID)
@@ -252,10 +275,14 @@ actor Sub2APIClient: Sub2APIClientServing {
                 baseURL: baseURL,
                 path: "admin/accounts/\(accountID)/usage",
                 method: "GET",
-                queryItems: [URLQueryItem(name: "source", value: "active")],
-                accessToken: accessToken
+                queryItems: [
+                    URLQueryItem(name: "source", value: "active"),
+                    URLQueryItem(name: "force", value: "true")
+                ],
+                accessToken: accessToken,
+                requestTimeoutOverride: Self.accountUsageRefreshRequestTimeout
             )
-            return .refreshed
+            return .refreshed(accountID)
         } catch is CancellationError {
             throw CancellationError()
         } catch Sub2APIError.unauthorized {
@@ -263,7 +290,7 @@ actor Sub2APIClient: Sub2APIClientServing {
         } catch Sub2APIError.incompatibleServer {
             return .incompatibleServer
         } catch {
-            return .failed
+            return .failed(accountID)
         }
     }
 
@@ -319,7 +346,8 @@ actor Sub2APIClient: Sub2APIClientServing {
         queryItems: [URLQueryItem] = [],
         body: Data? = nil,
         accessToken: String?,
-        authenticationError: Sub2APIError = .unauthorized
+        authenticationError: Sub2APIError = .unauthorized,
+        requestTimeoutOverride: TimeInterval? = nil
     ) async throws -> Payload {
         var components = URLComponents(url: baseURL.appending(path: path), resolvingAgainstBaseURL: false)
         components?.queryItems = queryItems.isEmpty ? nil : queryItems
@@ -328,7 +356,7 @@ actor Sub2APIClient: Sub2APIClientServing {
         var request = URLRequest(
             url: url,
             cachePolicy: .reloadIgnoringLocalCacheData,
-            timeoutInterval: requestTimeout
+            timeoutInterval: requestTimeoutOverride ?? requestTimeout
         )
         request.httpMethod = method
         request.httpBody = body
@@ -440,18 +468,69 @@ private struct BatchUsageRequest: Encodable {
     }
 }
 
-private struct BatchUsageResponse: Decodable, Sendable {}
+private struct BatchUsageResponse: Decodable, Sendable {
+    let usageAccountIDs: Set<Int64>
+    let errorAccountIDs: Set<Int64>
+
+    enum CodingKeys: String, CodingKey {
+        case usage, errors
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        usageAccountIDs = Self.accountIDs(in: container, forKey: .usage)
+        errorAccountIDs = Self.accountIDs(in: container, forKey: .errors)
+    }
+
+    private static func accountIDs(
+        in container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys
+    ) -> Set<Int64> {
+        guard let values = try? container.nestedContainer(
+            keyedBy: DynamicCodingKey.self,
+            forKey: key
+        ) else {
+            return []
+        }
+        return Set(values.allKeys.compactMap { Int64($0.stringValue) })
+    }
+}
+
+private struct DynamicCodingKey: CodingKey {
+    let stringValue: String
+    let intValue: Int?
+
+    init?(stringValue: String) {
+        self.stringValue = stringValue
+        intValue = Int(stringValue)
+    }
+
+    init?(intValue: Int) {
+        stringValue = String(intValue)
+        self.intValue = intValue
+    }
+}
 
 private struct AccountUsageRefreshResponse: Decodable, Sendable {}
 
 private enum AccountUsageRefreshResult: Sendable {
-    case refreshed
+    case refreshed(Int64)
     case unauthorized(Int64)
     case incompatibleServer
-    case failed
+    case failed(Int64)
+
+    var refreshedAccountID: Int64? {
+        guard case .refreshed(let accountID) = self else { return nil }
+        return accountID
+    }
 
     var unauthorizedAccountID: Int64? {
         guard case .unauthorized(let accountID) = self else { return nil }
+        return accountID
+    }
+
+    var failedAccountID: Int64? {
+        guard case .failed(let accountID) = self else { return nil }
         return accountID
     }
 

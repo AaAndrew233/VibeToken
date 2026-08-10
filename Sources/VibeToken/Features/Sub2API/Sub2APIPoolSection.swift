@@ -125,7 +125,12 @@ struct Sub2APIPoolSection: View {
                         .truncationMode(.tail)
                 }
                 Spacer(minLength: 8)
-                Text(RefreshTimestampFormatter.string(snapshot.fetchedAt, language: state.language))
+                Text(
+                    RefreshTimestampFormatter.string(
+                        state.sub2APILastSuccessfulRefreshAt ?? snapshot.fetchedAt,
+                        language: state.language
+                    )
+                )
                     .monospacedDigit()
                     .fixedSize(horizontal: true, vertical: false)
                     .layoutPriority(1)
@@ -279,6 +284,11 @@ struct Sub2APIPoolSection: View {
         case .failed(let error):
             VStack(spacing: 10) {
                 errorLabel(error)
+                if let lastSuccessfulRefreshAt = state.sub2APILastSuccessfulRefreshAt {
+                    Text(lastSuccessfulRefreshText(lastSuccessfulRefreshAt))
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                }
                 Button(state.text(.configureConnection), action: onConfigure)
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -289,6 +299,13 @@ struct Sub2APIPoolSection: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, minHeight: 52)
         }
+    }
+
+    private func lastSuccessfulRefreshText(_ date: Date) -> String {
+        let timestamp = RefreshTimestampFormatter.string(date, language: state.language)
+        return state.language == .simplifiedChinese
+            ? "上次成功：\(timestamp)"
+            : "Last successful refresh: \(timestamp)"
     }
 
     private func errorLabel(_ error: Sub2APIError) -> some View {
@@ -358,7 +375,10 @@ struct Sub2APIPoolSection: View {
     }
 
     private func planSummary(_ plans: [Sub2APIPlanSnapshot]) -> String {
-        plans.prefix(4).map { "\($0.plan) \($0.accountCount)" }.joined(separator: "  ·  ")
+        let summary = plans.prefix(4).map {
+            "\($0.plan) \($0.availableAccountCount)/\($0.accountCount)"
+        }.joined(separator: "  ·  ")
+        return "\(state.text(.availableAccountsByPlan)): \(summary)"
     }
 
     private var locale: Locale {

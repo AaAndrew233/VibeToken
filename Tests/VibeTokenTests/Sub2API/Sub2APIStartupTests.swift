@@ -12,7 +12,7 @@ final class Sub2APIStartupTests: XCTestCase {
         XCTAssertEqual(configuration.sub2APISnapshotStaleSeconds, 8 * 60 * 60)
         XCTAssertEqual(configuration.sub2APIMinimumRefreshSeconds, 30)
         XCTAssertEqual(configuration.sub2APIPollingInterval, .seconds(30))
-        XCTAssertEqual(configuration.sub2APIUsageRefreshIntervalSeconds, 10 * 60)
+        XCTAssertEqual(configuration.sub2APIUsageRefreshIntervalSeconds, 30 * 60)
     }
 
     func testFirstRefreshRestoresSavedSub2APIConnection() async throws {
@@ -134,6 +134,55 @@ final class Sub2APIStartupTests: XCTestCase {
         let finalFetchCount = await client.fetchCount
         XCTAssertEqual(finalFetchCount, fetchCountAfterStop)
     }
+
+    func testForcedRefreshRequestedWhileBackgroundRefreshIsBusyRunsTrailingProbe() async throws {
+        let database = try VibeTokenDatabase.inMemory()
+        let connection = Sub2APIConnection(
+            baseURL: try XCTUnwrap(URL(string: "https://relay.example.com/api/v1")),
+            email: "admin@example.com"
+        )
+        let client = DelayedUsageSub2APIClient()
+        let poolMonitor = Sub2APIPoolMonitor(
+            client: client,
+            sessionStore: CountingSessionStore(
+                session: Sub2APISession(accessToken: "test", refreshToken: nil, expiresAt: nil)
+            ),
+            connectionStore: CountingConnectionStore(connection: connection),
+            capacityConfigurationStore: MemoryCapacityConfigurationStore(),
+            pageSize: 100,
+            maximumPages: 100,
+            staleAfter: 15 * 60,
+            minimumRefreshInterval: 0,
+            usageRefreshInterval: 30 * 60,
+            usageReadbackAttempts: 3,
+            usageReadbackDelay: .milliseconds(1)
+        )
+        let repository = UsageRepository(database: database)
+        let state = AppState(
+            ingestionCoordinator: UsageIngestionCoordinator(
+                sources: [],
+                repository: repository,
+                maximumWatchFiles: 64
+            ),
+            sub2APIPoolMonitor: poolMonitor,
+            refreshInterval: .seconds(30),
+            sub2APIRefreshInterval: .seconds(30),
+            fileEventDebounceMilliseconds: 100,
+            costEstimator: CostEstimator(catalog: .officialAPI)
+        )
+
+        state.startMonitoring()
+        defer { state.stopMonitoring() }
+        try await Task.sleep(for: .milliseconds(10))
+
+        let didRefresh = await state.refresh(forceRemote: true)
+        let usageRefreshCount = await client.usageRefreshCount
+
+        XCTAssertTrue(didRefresh)
+        XCTAssertEqual(usageRefreshCount, 2)
+        XCTAssertEqual(state.sub2APIStatus, .connected)
+        XCTAssertNotNil(state.sub2APIPoolSnapshot)
+    }
 }
 
 private final class MemoryCapacityConfigurationStore: Sub2APICapacityConfigurationStoring, @unchecked Sendable {
@@ -182,6 +231,36 @@ private actor CountingSub2APIClient: Sub2APIClientServing {
     }
 
     func refreshAccountUsage(baseURL: URL, accountIDs: [Int64]) async throws {}
+}
+
+private actor DelayedUsageSub2APIClient: Sub2APIClientServing {
+    private(set) var usageRefreshCount = 0
+
+    func login(baseURL: URL, email: String, password: String) async throws -> Sub2APILoginResult {
+        throw Sub2APIError.serverUnavailable
+    }
+
+    func completeTwoFactor(baseURL: URL, tempToken: String, code: String) async throws -> Sub2APISession {
+        throw Sub2APIError.serverUnavailable
+    }
+
+    func fetchAccounts(
+        baseURL: URL,
+        pageSize: Int,
+        maximumPages: Int
+    ) async throws -> [Sub2APIAccountPayload] {
+        let updatedAt = usageRefreshCount == 0
+            ? Date().addingTimeInterval(-60 * 60)
+            : Date().addingTimeInterval(TimeInterval(usageRefreshCount))
+        let timestamp = ISO8601DateFormatter().string(from: updatedAt)
+        let body = #"{"id":1,"status":"active","schedulable":true,"parent_account_id":null,"credentials":{"plan_type":"plus"},"extra":{"codex_5h_used_percent":25,"codex_7d_used_percent":50,"codex_usage_updated_at":"\#(timestamp)"}}"#
+        return [try JSONDecoder().decode(Sub2APIAccountPayload.self, from: Data(body.utf8))]
+    }
+
+    func refreshAccountUsage(baseURL: URL, accountIDs: [Int64]) async throws {
+        usageRefreshCount += 1
+        try await Task.sleep(for: .milliseconds(40))
+    }
 }
 
 private final class CountingSessionStore: Sub2APISessionStoring, @unchecked Sendable {

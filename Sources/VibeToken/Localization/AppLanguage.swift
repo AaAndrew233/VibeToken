@@ -69,6 +69,7 @@ enum CopyKey: String, Sendable {
     case effectiveCapacity
     case windowBalances
     case currentAvailableAccounts
+    case availableAccountsByPlan
     case windowLimitedAccounts
     case dataIssues
     case nextRecovery
@@ -174,6 +175,7 @@ enum Localizer {
         .effectiveCapacity: "当前可用账号",
         .windowBalances: "剩余额度 / 总额度",
         .currentAvailableAccounts: "当前可用",
+        .availableAccountsByPlan: "套餐可用账号",
         .windowLimitedAccounts: "窗口受限",
         .dataIssues: "数据异常",
         .nextRecovery: "下次恢复",
@@ -269,6 +271,7 @@ enum Localizer {
         .effectiveCapacity: "Accounts Available Now",
         .windowBalances: "Remaining / Total",
         .currentAvailableAccounts: "Available Now",
+        .availableAccountsByPlan: "Available by Plan",
         .windowLimitedAccounts: "Window Limited",
         .dataIssues: "Data Issues",
         .nextRecovery: "Next Recovery",

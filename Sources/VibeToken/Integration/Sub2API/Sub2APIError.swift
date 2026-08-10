@@ -14,6 +14,8 @@ enum Sub2APIError: LocalizedError, Equatable, Sendable {
     case tooManyAccounts
     case secureStorageFailed
     case capacityConfigurationIncomplete
+    case usageRefreshIncomplete(refreshed: Int, total: Int)
+    case accountPoolChangedDuringRefresh
     case unexpectedResponse
 
     var errorDescription: String? {
@@ -36,6 +38,8 @@ enum Sub2APIError: LocalizedError, Equatable, Sendable {
             case .tooManyAccounts: "The account pool exceeds the safe read limit"
             case .secureStorageFailed: "Login state could not be saved locally"
             case .capacityConfigurationIncomplete: "Choose a capacity type for every Pro account"
+            case .usageRefreshIncomplete(let refreshed, let total): "Quota refresh verified \(refreshed)/\(total) accounts"
+            case .accountPoolChangedDuringRefresh: "The account pool changed during quota refresh; retry"
             case .unexpectedResponse: "The relay server returned unrecognized data"
             }
         }
@@ -53,6 +57,8 @@ enum Sub2APIError: LocalizedError, Equatable, Sendable {
         case .tooManyAccounts: "账号数量超过安全读取上限"
         case .secureStorageFailed: "无法保存本地登录状态"
         case .capacityConfigurationIncomplete: "请为每个 Pro 账号选择额度类型"
+        case .usageRefreshIncomplete(let refreshed, let total): "额度刷新仅验证通过 \(refreshed)/\(total) 个账号"
+        case .accountPoolChangedDuringRefresh: "额度刷新期间账号池发生变化，请重试"
         case .unexpectedResponse: "中转服务返回了无法识别的数据"
         }
     }

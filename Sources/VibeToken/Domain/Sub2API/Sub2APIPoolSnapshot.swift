@@ -27,6 +27,7 @@ struct Sub2APIWindowSnapshot: Equatable, Sendable {
 struct Sub2APIPlanSnapshot: Identifiable, Equatable, Sendable {
     let plan: String
     let accountCount: Int
+    let availableAccountCount: Int
     let fiveHour: Sub2APIWindowSnapshot
     let sevenDay: Sub2APIWindowSnapshot
 
@@ -214,6 +215,9 @@ enum Sub2APIPoolAggregator {
             Sub2APIPlanSnapshot(
                 plan: plan,
                 accountCount: planAccounts.count,
+                availableAccountCount: planAccounts.count {
+                    !zeroContributionIDs.contains($0.id)
+                },
                 fiveHour: summarize(
                     planAccounts,
                     window: .fiveHour,

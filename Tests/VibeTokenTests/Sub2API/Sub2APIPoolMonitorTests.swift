@@ -133,14 +133,15 @@ final class Sub2APIPoolMonitorTests: XCTestCase {
         XCTAssertEqual(snapshot?.staleWindowAccounts, 0)
     }
 
-    func testUsageRefreshDoesNotRepeatWithinTenMinutes() async throws {
-        let accounts = try [decodeUsageAccount(id: 1, status: "active", updatedAt: nil)]
+    func testLightweightPollingDoesNotRepeatUsageRefreshWithinInterval() async throws {
+        let currentTimestamp = ISO8601DateFormatter().string(from: Date())
+        let accounts = try [decodeUsageAccount(id: 1, status: "active", updatedAt: currentTimestamp)]
         let client = RecordingAccountsClient(accountResponses: [accounts, accounts, accounts])
         let fixture = try makeUsageRefreshFixture(client: client)
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
 
         _ = try await fixture.monitor.refresh(force: true)
-        _ = try await fixture.monitor.refresh(force: true)
+        _ = try await fixture.monitor.refresh(force: false)
         let fetchCount = await client.fetchCount
         let usageRequests = await client.usageRequests
 
@@ -148,23 +149,123 @@ final class Sub2APIPoolMonitorTests: XCTestCase {
         XCTAssertEqual(usageRequests, [[1]])
     }
 
-    func testIncompatibleUsageEndpointKeepsSnapshotAndDisablesFurtherProbes() async throws {
+    func testEveryForcedRefreshRunsAnOfficialUsageProbe() async throws {
+        let firstTimestamp = ISO8601DateFormatter().string(from: Date())
+        let secondTimestamp = ISO8601DateFormatter().string(from: Date().addingTimeInterval(1))
+        let thirdTimestamp = ISO8601DateFormatter().string(from: Date().addingTimeInterval(2))
+        let first = try [decodeUsageAccount(id: 1, status: "active", updatedAt: firstTimestamp)]
+        let second = try [decodeUsageAccount(id: 1, status: "active", updatedAt: secondTimestamp)]
+        let third = try [decodeUsageAccount(id: 1, status: "active", updatedAt: thirdTimestamp)]
+        let client = RecordingAccountsClient(accountResponses: [first, second, second, third])
+        let fixture = try makeUsageRefreshFixture(client: client)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        _ = try await fixture.monitor.refresh(force: true)
+        _ = try await fixture.monitor.refresh(force: true)
+
+        let usageRequests = await client.usageRequests
+        XCTAssertEqual(usageRequests, [[1], [1]])
+    }
+
+    func testUsageRefreshWaitsForAsynchronousPersistenceBeforePublishing() async throws {
+        let oldTimestamp = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-60 * 60))
+        let freshTimestamp = ISO8601DateFormatter().string(from: Date())
+        let old = try [decodeUsageAccount(id: 1, status: "active", updatedAt: oldTimestamp)]
+        let fresh = try [decodeUsageAccount(id: 1, status: "active", updatedAt: freshTimestamp)]
+        let client = RecordingAccountsClient(accountResponses: [old, old, fresh])
+        let fixture = try makeUsageRefreshFixture(client: client)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        let snapshot = try await fixture.monitor.refresh(force: true)
+
+        let fetchCount = await client.fetchCount
+        XCTAssertEqual(fetchCount, 3)
+        XCTAssertEqual(snapshot?.staleWindowAccounts, 0)
+    }
+
+    func testUsageRefreshDoesNotPublishWhenOneAccountTimestampDoesNotAdvance() async throws {
+        let oldTimestamp = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-60 * 60))
+        let freshTimestamp = ISO8601DateFormatter().string(from: Date())
+        let baseline = try [
+            decodeUsageAccount(id: 1, status: "active", updatedAt: oldTimestamp),
+            decodeUsageAccount(id: 2, status: "active", updatedAt: oldTimestamp)
+        ]
+        let partial = try [
+            decodeUsageAccount(id: 1, status: "active", updatedAt: freshTimestamp),
+            decodeUsageAccount(id: 2, status: "active", updatedAt: oldTimestamp)
+        ]
+        let client = RecordingAccountsClient(accountResponses: [baseline, partial])
+        let fixture = try makeUsageRefreshFixture(client: client)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        do {
+            _ = try await fixture.monitor.refresh(force: true)
+            XCTFail("Expected incomplete usage refresh")
+        } catch let error as Sub2APIError {
+            XCTAssertEqual(error, .usageRefreshIncomplete(refreshed: 1, total: 2))
+        }
+    }
+
+    func testExplicitlyRateLimitedAccountIsVerifiedAsZeroWithoutTimestampAdvance() async throws {
+        let oldTimestamp = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-60 * 60))
+        let baseline = try [decodeUsageAccount(id: 1, status: "active", updatedAt: oldTimestamp)]
+        let limited = try [decodeLimitedUsageAccount(id: 1, updatedAt: oldTimestamp)]
+        let client = RecordingAccountsClient(accountResponses: [baseline, limited])
+        let fixture = try makeUsageRefreshFixture(client: client)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        let snapshot = try await fixture.monitor.refresh(force: true)
+
+        XCTAssertEqual(snapshot?.effectiveCapacity.availableAccounts, 0)
+        XCTAssertEqual(snapshot?.effectiveCapacity.windowLimitedAccounts, 1)
+        XCTAssertEqual(snapshot?.missingWindowAccounts, 0)
+        XCTAssertEqual(snapshot?.staleWindowAccounts, 0)
+    }
+
+    func testUsageRefreshRetriesWhenActiveAccountSetChanges() async throws {
+        let oldTimestamp = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-60 * 60))
+        let freshTimestamp = ISO8601DateFormatter().string(from: Date())
+        let oneAccount = try [decodeUsageAccount(id: 1, status: "active", updatedAt: oldTimestamp)]
+        let changedPool = try [
+            decodeUsageAccount(id: 1, status: "active", updatedAt: freshTimestamp),
+            decodeUsageAccount(id: 2, status: "active", updatedAt: oldTimestamp)
+        ]
+        let fullyRefreshed = try [
+            decodeUsageAccount(id: 1, status: "active", updatedAt: freshTimestamp),
+            decodeUsageAccount(id: 2, status: "active", updatedAt: freshTimestamp)
+        ]
+        let client = RecordingAccountsClient(
+            accountResponses: [oneAccount, changedPool, fullyRefreshed]
+        )
+        let fixture = try makeUsageRefreshFixture(client: client)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        let snapshot = try await fixture.monitor.refresh(force: true)
+
+        let usageRequests = await client.usageRequests
+        XCTAssertEqual(usageRequests, [[1], [1, 2]])
+        XCTAssertEqual(snapshot?.totalAccounts, 2)
+    }
+
+    func testIncompatibleUsageEndpointDoesNotPublishUnverifiedSnapshot() async throws {
         let accounts = try [decodeUsageAccount(id: 1, status: "active", updatedAt: nil)]
         let client = RecordingAccountsClient(
-            accountResponses: [accounts, accounts],
+            accountResponses: [accounts],
             usageError: .incompatibleServer
         )
         let fixture = try makeUsageRefreshFixture(client: client)
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
 
-        let first = try await fixture.monitor.refresh(force: true)
-        let second = try await fixture.monitor.refresh(force: true)
+        do {
+            _ = try await fixture.monitor.refresh(force: true)
+            XCTFail("Expected incompatible server")
+        } catch let error as Sub2APIError {
+            XCTAssertEqual(error, .incompatibleServer)
+        }
         let fetchCount = await client.fetchCount
         let usageRequests = await client.usageRequests
 
-        XCTAssertEqual(first?.totalAccounts, 1)
-        XCTAssertEqual(second?.totalAccounts, 1)
-        XCTAssertEqual(fetchCount, 2)
+        XCTAssertEqual(fetchCount, 1)
         XCTAssertEqual(usageRequests, [[1]])
     }
 
@@ -188,12 +289,13 @@ final class Sub2APIPoolMonitorTests: XCTestCase {
     }
 
     private func decodeAccounts() throws -> [Sub2APIAccountPayload] {
+        let currentTimestamp = ISO8601DateFormatter().string(from: Date())
         let body = #"""
         [
-            {"id":1,"name":"Primary","status":"active","schedulable":true,"parent_account_id":null,"credentials":{"plan_type":"pro"},"extra":{"codex_5h_used_percent":0,"codex_7d_used_percent":0}},
-            {"id":2,"status":"active","schedulable":true,"parent_account_id":null,"credentials":{"plan_type":"pro"},"extra":{"codex_5h_used_percent":0,"codex_7d_used_percent":0}},
-            {"id":3,"status":"active","schedulable":true,"parent_account_id":1,"credentials":{"plan_type":"pro"},"extra":{"codex_5h_used_percent":0,"codex_7d_used_percent":0}},
-            {"id":4,"status":"active","schedulable":true,"parent_account_id":null,"credentials":{"plan_type":"plus"},"extra":{"codex_5h_used_percent":0,"codex_7d_used_percent":0}}
+            {"id":1,"name":"Primary","status":"active","schedulable":true,"parent_account_id":null,"credentials":{"plan_type":"pro"},"extra":{"codex_5h_used_percent":0,"codex_7d_used_percent":0,"codex_usage_updated_at":"\#(currentTimestamp)"}},
+            {"id":2,"status":"active","schedulable":true,"parent_account_id":null,"credentials":{"plan_type":"pro"},"extra":{"codex_5h_used_percent":0,"codex_7d_used_percent":0,"codex_usage_updated_at":"\#(currentTimestamp)"}},
+            {"id":3,"status":"active","schedulable":true,"parent_account_id":1,"credentials":{"plan_type":"pro"},"extra":{"codex_5h_used_percent":0,"codex_7d_used_percent":0,"codex_usage_updated_at":"\#(currentTimestamp)"}},
+            {"id":4,"status":"active","schedulable":true,"parent_account_id":null,"credentials":{"plan_type":"plus"},"extra":{"codex_5h_used_percent":0,"codex_7d_used_percent":0,"codex_usage_updated_at":"\#(currentTimestamp)"}}
         ]
         """#
         return try JSONDecoder().decode([Sub2APIAccountPayload].self, from: Data(body.utf8))
@@ -203,8 +305,9 @@ final class Sub2APIPoolMonitorTests: XCTestCase {
         plan: String
     ) throws -> [Sub2APIAccountPayload] {
         var accounts = try decodeAccounts()
+        let currentTimestamp = ISO8601DateFormatter().string(from: Date())
         let body = #"""
-        {"id":5,"status":"active","schedulable":true,"parent_account_id":null,"credentials":{"plan_type":"\#(plan)"},"extra":{"codex_5h_used_percent":0,"codex_7d_used_percent":0}}
+        {"id":5,"status":"active","schedulable":true,"parent_account_id":null,"credentials":{"plan_type":"\#(plan)"},"extra":{"codex_5h_used_percent":0,"codex_7d_used_percent":0,"codex_usage_updated_at":"\#(currentTimestamp)"}}
         """#
         accounts.append(
             try JSONDecoder().decode(Sub2APIAccountPayload.self, from: Data(body.utf8))
@@ -237,6 +340,27 @@ final class Sub2APIPoolMonitorTests: XCTestCase {
         return try JSONDecoder().decode(Sub2APIAccountPayload.self, from: data)
     }
 
+    private func decodeLimitedUsageAccount(
+        id: Int64,
+        updatedAt: String
+    ) throws -> Sub2APIAccountPayload {
+        let resetAt = ISO8601DateFormatter().string(from: Date().addingTimeInterval(60 * 60))
+        let data = try JSONSerialization.data(withJSONObject: [
+            "id": NSNumber(value: id),
+            "status": "active",
+            "schedulable": true,
+            "parent_account_id": NSNull(),
+            "rate_limit_reset_at": resetAt,
+            "credentials": ["plan_type": "plus"],
+            "extra": [
+                "codex_5h_used_percent": 25,
+                "codex_7d_used_percent": 50,
+                "codex_usage_updated_at": updatedAt
+            ]
+        ])
+        return try JSONDecoder().decode(Sub2APIAccountPayload.self, from: data)
+    }
+
     private func makeUsageRefreshFixture(
         client: RecordingAccountsClient
     ) throws -> (monitor: Sub2APIPoolMonitor, directory: URL) {
@@ -260,7 +384,9 @@ final class Sub2APIPoolMonitorTests: XCTestCase {
                 maximumPages: 10,
                 staleAfter: 15 * 60,
                 minimumRefreshInterval: 0,
-                usageRefreshInterval: 10 * 60
+                usageRefreshInterval: 10 * 60,
+                usageReadbackAttempts: 3,
+                usageReadbackDelay: .milliseconds(1)
             ),
             directory
         )

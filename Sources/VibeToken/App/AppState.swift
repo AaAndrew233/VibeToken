@@ -20,6 +20,7 @@ final class AppState {
     private(set) var sub2APIConnection: Sub2APIConnection?
     private(set) var sub2APIStatus = Sub2APIStatus.disconnected
     private(set) var sub2APILastError: Sub2APIError?
+    private(set) var sub2APILastSuccessfulRefreshAt: Date?
     private(set) var pendingSub2APIMaskedEmail: String?
     private(set) var selectedTimeRange: UsageTimeRange
     private(set) var isRefreshing = false
@@ -48,8 +49,11 @@ final class AppState {
     @ObservationIgnored private var monitorTask: Task<Void, Never>?
     @ObservationIgnored private var sub2APIMonitorTask: Task<Void, Never>?
     @ObservationIgnored private var isMonitoringStarted = false
+    @ObservationIgnored private var refreshTask: Task<Bool, Never>?
     @ObservationIgnored private var refreshRequestedWhileBusy = false
-    @ObservationIgnored private var isSub2APIRefreshInFlight = false
+    @ObservationIgnored private var forceRemoteRefreshRequestedWhileBusy = false
+    @ObservationIgnored private var sub2APIRefreshTask: Task<Bool, Never>?
+    @ObservationIgnored private var sub2APIForceRefreshRequestedWhileBusy = false
     @ObservationIgnored private var isSub2APIVisualFixture = false
     @ObservationIgnored private var hasAttemptedSub2APIRestore = false
     @ObservationIgnored var onMenuBarSummaryChange: ((Int64?, MoneyAmount?, Locale) -> Void)?
@@ -119,15 +123,21 @@ final class AppState {
         sub2APIMonitorTask?.cancel()
         let interval = sub2APIRefreshInterval
         sub2APIMonitorTask = Task { [weak self] in
+            guard let self else { return }
+            await restoreSub2APIConnectionIfNeeded()
+            _ = await refreshSub2APIPool(
+                force: true,
+                displaysProgress: false,
+                queuesForcedRefreshIfBusy: false
+            )
             while !Task.isCancelled {
                 do {
                     try await Task.sleep(for: interval)
                 } catch {
                     return
                 }
-                guard let self else { return }
                 await restoreSub2APIConnectionIfNeeded()
-                _ = await refreshSub2APIPool(force: true, displaysProgress: false)
+                _ = await refreshSub2APIPool(force: false, displaysProgress: false)
             }
         }
     }
@@ -136,8 +146,15 @@ final class AppState {
         isMonitoringStarted = false
         monitorTask?.cancel()
         monitorTask = nil
+        refreshTask?.cancel()
+        refreshTask = nil
+        refreshRequestedWhileBusy = false
+        forceRemoteRefreshRequestedWhileBusy = false
         sub2APIMonitorTask?.cancel()
         sub2APIMonitorTask = nil
+        sub2APIRefreshTask?.cancel()
+        sub2APIRefreshTask = nil
+        sub2APIForceRefreshRequestedWhileBusy = false
         fileObserver.stop()
     }
 
@@ -152,18 +169,34 @@ final class AppState {
 
     @discardableResult
     func refresh(forceRemote: Bool = false) async -> Bool {
-        guard !isRefreshing else {
+        if forceRemote {
+            forceRemoteRefreshRequestedWhileBusy = true
+        }
+        if let refreshTask {
             refreshRequestedWhileBusy = true
-            return false
+            return await refreshTask.value
         }
 
         isRefreshing = true
+        let task = Task { @MainActor [weak self] in
+            await self?.drainRefreshRequests(initialForceRemote: forceRemote) ?? false
+        }
+        refreshTask = task
+        return await task.value
+    }
+
+    private func drainRefreshRequests(initialForceRemote: Bool) async -> Bool {
+        var forceRemote = initialForceRemote
         var didSucceed = false
         repeat {
             refreshRequestedWhileBusy = false
-            didSucceed = await performRefresh(forceRemote: forceRemote) || didSucceed
+            forceRemote = forceRemote || forceRemoteRefreshRequestedWhileBusy
+            forceRemoteRefreshRequestedWhileBusy = false
+            didSucceed = await performRefresh(forceRemote: forceRemote)
+            forceRemote = false
         } while refreshRequestedWhileBusy && !Task.isCancelled
         isRefreshing = false
+        refreshTask = nil
         return didSucceed
     }
 
@@ -284,12 +317,16 @@ final class AppState {
     }
 
     func disconnectSub2API() async {
+        sub2APIRefreshTask?.cancel()
+        sub2APIRefreshTask = nil
+        sub2APIForceRefreshRequestedWhileBusy = false
         do {
             try await sub2APIPoolMonitor.disconnect()
             sub2APIConnection = nil
             sub2APIPoolSnapshot = nil
             sub2APIAccountCapacityOptions = []
             sub2APILastError = nil
+            sub2APILastSuccessfulRefreshAt = nil
             pendingSub2APIMaskedEmail = nil
             sub2APIStatus = .disconnected
         } catch let error as Sub2APIError {
@@ -384,6 +421,7 @@ final class AppState {
                 Sub2APIPlanSnapshot(
                     plan: "Plus",
                     accountCount: 7,
+                    availableAccountCount: 1,
                     fiveHour: Sub2APIWindowSnapshot(
                         observedAccounts: 7,
                         remainingEquivalentAccounts: 1,
@@ -400,6 +438,7 @@ final class AppState {
                 Sub2APIPlanSnapshot(
                     plan: "Pro",
                     accountCount: 4,
+                    availableAccountCount: 0,
                     fiveHour: Sub2APIWindowSnapshot(
                         observedAccounts: 4,
                         remainingEquivalentAccounts: 0,
@@ -475,39 +514,88 @@ final class AppState {
     @discardableResult
     private func refreshSub2APIPool(
         force: Bool,
-        displaysProgress: Bool = true
+        displaysProgress: Bool = true,
+        queuesForcedRefreshIfBusy: Bool = true
     ) async -> Bool {
         if isSub2APIVisualFixture { return true }
         guard sub2APIConnection != nil else {
             sub2APIStatus = .disconnected
             return true
         }
-        guard !isSub2APIRefreshInFlight else { return true }
-        isSub2APIRefreshInFlight = true
-        defer { isSub2APIRefreshInFlight = false }
-        if displaysProgress && (sub2APIPoolSnapshot == nil || force) {
-            sub2APIStatus = .syncing
+        if force && (sub2APIRefreshTask == nil || queuesForcedRefreshIfBusy) {
+            sub2APIForceRefreshRequestedWhileBusy = true
         }
-        do {
-            if let snapshot = try await sub2APIPoolMonitor.refresh(force: force) {
-                sub2APIPoolSnapshot = snapshot
-                sub2APIAccountCapacityOptions = try await sub2APIPoolMonitor.capacityOptions()
-                sub2APILastError = nil
-                sub2APIStatus = .connected
-            } else {
-                sub2APIStatus = .disconnected
+        if let sub2APIRefreshTask {
+            return await sub2APIRefreshTask.value
+        }
+
+        let task = Task { @MainActor [weak self] in
+            await self?.drainSub2APIRefreshRequests(
+                initialForce: force,
+                displaysProgress: displaysProgress
+            ) ?? false
+        }
+        sub2APIRefreshTask = task
+        return await task.value
+    }
+
+    private func drainSub2APIRefreshRequests(
+        initialForce: Bool,
+        displaysProgress: Bool
+    ) async -> Bool {
+        var force = initialForce
+        var outcome = Sub2APIRefreshOutcome.cancelled
+
+        repeat {
+            force = force || sub2APIForceRefreshRequestedWhileBusy
+            sub2APIForceRefreshRequestedWhileBusy = false
+            if displaysProgress && (sub2APIPoolSnapshot == nil || force) {
+                sub2APIStatus = .syncing
             }
-            return true
+            outcome = await performSub2APIPoolRefresh(force: force)
+            force = false
+        } while sub2APIForceRefreshRequestedWhileBusy && !Task.isCancelled
+
+        applySub2APIRefreshOutcome(outcome)
+        sub2APIRefreshTask = nil
+        return outcome.didSucceed
+    }
+
+    private func performSub2APIPoolRefresh(force: Bool) async -> Sub2APIRefreshOutcome {
+        do {
+            guard let snapshot = try await sub2APIPoolMonitor.refresh(force: force) else {
+                return .disconnected
+            }
+            let options = try await sub2APIPoolMonitor.capacityOptions()
+            let lastSuccessfulRefreshAt = await sub2APIPoolMonitor.lastSuccessfulUsageRefreshDate()
+            return .connected(snapshot, options, lastSuccessfulRefreshAt)
         } catch is CancellationError {
-            return false
+            return .cancelled
         } catch let error as Sub2APIError {
+            return .failed(error)
+        } catch {
+            return .failed(.serverUnavailable)
+        }
+    }
+
+    private func applySub2APIRefreshOutcome(_ outcome: Sub2APIRefreshOutcome) {
+        switch outcome {
+        case .connected(let snapshot, let options, let lastSuccessfulRefreshAt):
+            sub2APIPoolSnapshot = snapshot
+            sub2APIAccountCapacityOptions = options
+            sub2APILastSuccessfulRefreshAt = lastSuccessfulRefreshAt
+            sub2APILastError = nil
+            sub2APIStatus = .connected
+        case .disconnected:
+            sub2APIPoolSnapshot = nil
+            sub2APIStatus = .disconnected
+        case .failed(let error):
+            sub2APIPoolSnapshot = nil
+            sub2APIAccountCapacityOptions = []
             sub2APILastError = error
             sub2APIStatus = .failed(error)
-            return false
-        } catch {
-            sub2APILastError = .serverUnavailable
-            sub2APIStatus = .failed(.serverUnavailable)
-            return false
+        case .cancelled:
+            break
         }
     }
 
@@ -613,4 +701,24 @@ final class AppState {
         )
     }
 
+}
+
+private enum Sub2APIRefreshOutcome {
+    case connected(
+        Sub2APIPoolSnapshot,
+        [Sub2APIAccountCapacityOption],
+        Date?
+    )
+    case disconnected
+    case failed(Sub2APIError)
+    case cancelled
+
+    var didSucceed: Bool {
+        switch self {
+        case .connected, .disconnected:
+            true
+        case .failed, .cancelled:
+            false
+        }
+    }
 }

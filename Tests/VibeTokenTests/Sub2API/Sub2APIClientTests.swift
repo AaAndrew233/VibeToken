@@ -171,11 +171,11 @@ final class Sub2APIClientTests: XCTestCase {
         XCTAssertNil(second.fiveHourUsedPercent)
     }
 
-    func testRefreshAccountUsagePostsNormalizedIDsWithoutForcing() async throws {
+    func testRefreshAccountUsagePostsNormalizedIDsWithForcedProbe() async throws {
         let loader = StubLoader(responses: [
             response(
                 status: 200,
-                body: #"{"code":0,"message":"success","data":{"requested":2}}"#
+                body: #"{"code":0,"message":"success","data":{"usage":{"2":{"source":"active"},"7":{"source":"active"}},"errors":{}}}"#
             )
         ])
         let store = MemorySessionStore(
@@ -198,7 +198,30 @@ final class Sub2APIClientTests: XCTestCase {
             JSONSerialization.jsonObject(with: body) as? [String: Any]
         )
         XCTAssertEqual(payload["account_ids"] as? [Int], [2, 7])
-        XCTAssertEqual(payload["force"] as? Bool, false)
+        XCTAssertEqual(payload["force"] as? Bool, true)
+    }
+
+    func testBatchUsageErrorsFailTheWholeRefresh() async throws {
+        let loader = StubLoader(responses: [
+            response(
+                status: 200,
+                body: #"{"code":0,"message":"success","data":{"usage":{"2":{"source":"active"}},"errors":{"7":{"message":"probe failed"}}}}"#
+            )
+        ])
+        let store = MemorySessionStore(
+            session: Sub2APISession(accessToken: "access", refreshToken: nil, expiresAt: nil)
+        )
+        let client = Sub2APIClient(loader: loader, sessionStore: store, requestTimeout: 2)
+
+        do {
+            try await client.refreshAccountUsage(
+                baseURL: try XCTUnwrap(URL(string: "https://relay.example.com/api/v1")),
+                accountIDs: [2, 7]
+            )
+            XCTFail("Expected incomplete usage refresh")
+        } catch let error as Sub2APIError {
+            XCTAssertEqual(error, .usageRefreshIncomplete(refreshed: 1, total: 2))
+        }
     }
 
     func testRefreshAccountUsageRefreshesExpiredAuthorizationOnce() async throws {
@@ -284,8 +307,13 @@ final class Sub2APIClientTests: XCTestCase {
             XCTAssertEqual(request.httpMethod, "GET")
             XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer access")
             let queryItems = URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.queryItems
-            XCTAssertEqual(queryItems, [URLQueryItem(name: "source", value: "active")])
-            XCTAssertNil(queryItems?.first(where: { $0.name == "force" }))
+            XCTAssertEqual(
+                queryItems,
+                [
+                    URLQueryItem(name: "source", value: "active"),
+                    URLQueryItem(name: "force", value: "true")
+                ]
+            )
         }
     }
 
@@ -320,7 +348,7 @@ final class Sub2APIClientTests: XCTestCase {
         XCTAssertEqual(requests[3].value(forHTTPHeaderField: "Authorization"), "Bearer new-access")
     }
 
-    func testPerAccountFallbackIgnoresOneAccountFailure() async throws {
+    func testPerAccountFallbackFailsWholeRefreshWhenOneAccountFails() async throws {
         let loader = StubLoader(responses: [
             response(status: 404, body: "Not Found"),
             response(status: 500, body: #"{"code":500,"message":"probe failed"}"#),
@@ -331,10 +359,15 @@ final class Sub2APIClientTests: XCTestCase {
         )
         let client = Sub2APIClient(loader: loader, sessionStore: store, requestTimeout: 2)
 
-        try await client.refreshAccountUsage(
-            baseURL: try XCTUnwrap(URL(string: "https://relay.example.com/api/v1")),
-            accountIDs: [1, 2]
-        )
+        do {
+            try await client.refreshAccountUsage(
+                baseURL: try XCTUnwrap(URL(string: "https://relay.example.com/api/v1")),
+                accountIDs: [1, 2]
+            )
+            XCTFail("Expected incomplete usage refresh")
+        } catch let error as Sub2APIError {
+            XCTAssertEqual(error, .usageRefreshIncomplete(refreshed: 1, total: 2))
+        }
 
         let requests = await loader.requests()
         XCTAssertEqual(requests.count, 3)

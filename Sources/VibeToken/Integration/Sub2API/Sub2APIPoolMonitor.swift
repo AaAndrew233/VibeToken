@@ -10,11 +10,14 @@ actor Sub2APIPoolMonitor {
     private let staleAfter: TimeInterval
     private let minimumRefreshInterval: TimeInterval
     private let usageRefreshInterval: TimeInterval
+    private let usageReadbackAttempts: Int
+    private let usageReadbackDelay: Duration
 
     private var cachedSnapshot: Sub2APIPoolSnapshot?
     private var cachedAccountPayloads: [Sub2APIAccountPayload] = []
     private var cachedConnection: Sub2APIConnection?
     private var lastUsageRefreshAt: Date?
+    private var lastSuccessfulUsageRefreshAt: Date?
     private var supportsUsageRefresh = true
     private var hasLoadedSavedConnection = false
     private var pendingTwoFactor: (connection: Sub2APIConnection, tempToken: String)?
@@ -28,7 +31,9 @@ actor Sub2APIPoolMonitor {
         maximumPages: Int,
         staleAfter: TimeInterval,
         minimumRefreshInterval: TimeInterval,
-        usageRefreshInterval: TimeInterval
+        usageRefreshInterval: TimeInterval,
+        usageReadbackAttempts: Int = 9,
+        usageReadbackDelay: Duration = .seconds(1)
     ) {
         self.client = client
         self.sessionStore = sessionStore
@@ -39,6 +44,8 @@ actor Sub2APIPoolMonitor {
         self.staleAfter = staleAfter
         self.minimumRefreshInterval = minimumRefreshInterval
         self.usageRefreshInterval = usageRefreshInterval
+        self.usageReadbackAttempts = max(1, usageReadbackAttempts)
+        self.usageReadbackDelay = usageReadbackDelay
     }
 
     func savedConnection() -> Sub2APIConnection? {
@@ -117,33 +124,37 @@ actor Sub2APIPoolMonitor {
             pageSize: pageSize,
             maximumPages: maximumPages
         )
-        let usageAccountIDs = payloads.compactMap { payload in
-            payload.parentAccountID == nil && payload.status == "active" ? payload.id : nil
+        let usageAccountIDs = activePhysicalAccountIDs(in: payloads)
+        let accountSetChanged = cachedSnapshot != nil
+            && usageAccountIDs != activePhysicalAccountIDs(in: cachedAccountPayloads)
+        if force {
+            supportsUsageRefresh = true
         }
-        if shouldRefreshUsage(at: fetchedAt), !usageAccountIDs.isEmpty {
+        guard supportsUsageRefresh || usageAccountIDs.isEmpty else {
+            throw Sub2APIError.incompatibleServer
+        }
+        if (force || accountSetChanged || shouldRefreshUsage(at: fetchedAt)), !usageAccountIDs.isEmpty {
             lastUsageRefreshAt = fetchedAt
             do {
-                try await client.refreshAccountUsage(
+                payloads = try await refreshAndVerifyUsage(
                     baseURL: connection.baseURL,
-                    accountIDs: usageAccountIDs
+                    baselinePayloads: payloads,
+                    startedAt: fetchedAt
                 )
-                payloads = try await client.fetchAccounts(
-                    baseURL: connection.baseURL,
-                    pageSize: pageSize,
-                    maximumPages: maximumPages
-                )
+                lastSuccessfulUsageRefreshAt = Date()
             } catch Sub2APIError.incompatibleServer {
                 supportsUsageRefresh = false
-            } catch Sub2APIError.unauthorized {
-                throw Sub2APIError.unauthorized
-            } catch {
-                PrivacyLog.relay.warning("Sub2API usage refresh failed; using account snapshot")
+                throw Sub2APIError.incompatibleServer
             }
         }
         cachedAccountPayloads = payloads
         let snapshot = try aggregateCachedAccounts(fetchedAt: fetchedAt)
         cachedSnapshot = snapshot
         return snapshot
+    }
+
+    func lastSuccessfulUsageRefreshDate() -> Date? {
+        lastSuccessfulUsageRefreshAt
     }
 
     func capacityOptions() throws -> [Sub2APIAccountCapacityOption] {
@@ -203,6 +214,7 @@ actor Sub2APIPoolMonitor {
         cachedAccountPayloads = []
         cachedConnection = nil
         lastUsageRefreshAt = nil
+        lastSuccessfulUsageRefreshAt = nil
         supportsUsageRefresh = true
         hasLoadedSavedConnection = true
         try sessionStore.delete()
@@ -233,6 +245,132 @@ actor Sub2APIPoolMonitor {
         return date.timeIntervalSince(lastUsageRefreshAt) >= usageRefreshInterval
     }
 
+    private func refreshAndVerifyUsage(
+        baseURL: URL,
+        baselinePayloads initialBaseline: [Sub2APIAccountPayload],
+        startedAt: Date
+    ) async throws -> [Sub2APIAccountPayload] {
+        var baselinePayloads = initialBaseline
+
+        for poolAttempt in 0..<2 {
+            let accountIDs = activePhysicalAccountIDs(in: baselinePayloads)
+            guard !accountIDs.isEmpty else { return baselinePayloads }
+
+            try await client.refreshAccountUsage(baseURL: baseURL, accountIDs: accountIDs.sorted())
+            let readback = try await waitForVerifiedUsage(
+                baseURL: baseURL,
+                baselinePayloads: baselinePayloads,
+                startedAt: startedAt
+            )
+            switch readback {
+            case .verified(let payloads):
+                return payloads
+            case .accountSetChanged(let payloads):
+                guard poolAttempt == 0 else {
+                    throw Sub2APIError.accountPoolChangedDuringRefresh
+                }
+                baselinePayloads = payloads
+            case .incomplete(let refreshed, let total):
+                throw Sub2APIError.usageRefreshIncomplete(refreshed: refreshed, total: total)
+            }
+        }
+
+        throw Sub2APIError.accountPoolChangedDuringRefresh
+    }
+
+    private func waitForVerifiedUsage(
+        baseURL: URL,
+        baselinePayloads: [Sub2APIAccountPayload],
+        startedAt: Date
+    ) async throws -> UsageReadbackResult {
+        let baselineByID = Dictionary(
+            baselinePayloads.map { ($0.id, $0) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+        let expectedIDs = activePhysicalAccountIDs(in: baselinePayloads)
+        var latestPayloads = baselinePayloads
+        var latestVerifiedCount = 0
+
+        for attempt in 0..<usageReadbackAttempts {
+            try Task.checkCancellation()
+            latestPayloads = try await client.fetchAccounts(
+                baseURL: baseURL,
+                pageSize: pageSize,
+                maximumPages: maximumPages
+            )
+            let currentIDs = activePhysicalAccountIDs(in: latestPayloads)
+            guard currentIDs == expectedIDs else {
+                return .accountSetChanged(latestPayloads)
+            }
+
+            let currentByID = Dictionary(
+                latestPayloads.map { ($0.id, $0) },
+                uniquingKeysWith: { _, latest in latest }
+            )
+            let verificationDate = Date()
+            latestVerifiedCount = expectedIDs.reduce(into: 0) { count, accountID in
+                guard let baseline = baselineByID[accountID],
+                      let current = currentByID[accountID],
+                      usageIsVerified(
+                          current,
+                          comparedWith: baseline,
+                          startedAt: startedAt,
+                          verificationDate: verificationDate
+                      )
+                else { return }
+                count += 1
+            }
+            if latestVerifiedCount == expectedIDs.count {
+                return .verified(latestPayloads)
+            }
+
+            if attempt + 1 < usageReadbackAttempts {
+                try await Task.sleep(for: usageReadbackDelay)
+            }
+        }
+
+        return .incomplete(refreshed: latestVerifiedCount, total: expectedIDs.count)
+    }
+
+    private func usageIsVerified(
+        _ current: Sub2APIAccountPayload,
+        comparedWith baseline: Sub2APIAccountPayload,
+        startedAt: Date,
+        verificationDate: Date
+    ) -> Bool {
+        let currentSnapshot = current.snapshot(now: verificationDate)
+        if !currentSnapshot.schedulable
+            || currentSnapshot.hasExplicitZeroCapacityState(at: verificationDate) {
+            return true
+        }
+
+        guard let fiveHour = currentSnapshot.fiveHourUsedPercent,
+              let sevenDay = currentSnapshot.sevenDayUsedPercent,
+              fiveHour.isFinite,
+              sevenDay.isFinite,
+              (0...100).contains(fiveHour),
+              (0...100).contains(sevenDay),
+              let currentUpdatedAt = currentSnapshot.usageUpdatedAt
+        else {
+            return false
+        }
+
+        let baselineUpdatedAt = baseline.snapshot(now: verificationDate).usageUpdatedAt
+        guard let baselineUpdatedAt else {
+            return true
+        }
+        return currentUpdatedAt > baselineUpdatedAt
+            || currentUpdatedAt >= startedAt.addingTimeInterval(-5)
+    }
+
+    private func activePhysicalAccountIDs(
+        in payloads: [Sub2APIAccountPayload]
+    ) -> Set<Int64> {
+        Set(payloads.compactMap { payload in
+            payload.parentAccountID == nil && payload.status == "active" ? payload.id : nil
+        })
+    }
+
     private func savedTiers() throws -> [Int64: Sub2APICapacityTier] {
         guard let serverIdentifier = cachedConnection?.baseURL.absoluteString else { return [:] }
         return try capacityConfigurationStore.load()?
@@ -247,5 +385,21 @@ actor Sub2APIPoolMonitor {
         .values
         .filter { $0.parentAccountID == nil }
         .sorted { $0.id < $1.id }
+    }
+}
+
+private enum UsageReadbackResult {
+    case verified([Sub2APIAccountPayload])
+    case accountSetChanged([Sub2APIAccountPayload])
+    case incomplete(refreshed: Int, total: Int)
+}
+
+private extension Sub2APIAccountSnapshot {
+    func hasExplicitZeroCapacityState(at date: Date) -> Bool {
+        (rateLimitResetAt.map { $0 > date } ?? false)
+            || (overloadUntil.map { $0 > date } ?? false)
+            || (tempUnschedulableUntil.map { $0 > date } ?? false)
+            || (fiveHourUsedPercent.map { $0 == 100 } ?? false)
+            || (sevenDayUsedPercent.map { $0 == 100 } ?? false)
     }
 }

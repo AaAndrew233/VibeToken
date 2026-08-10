@@ -97,10 +97,10 @@ The build script creates an ad-hoc signed app at `dist/VibeToken.app`. It is sui
 
 1. Open VibeToken and click its menu bar item.
 2. Choose Today, 24H, 7D, or 30D.
-3. Select live, 5-minute, 30-minute, or manual refresh for local usage collection. A connected Sub2API pool refreshes independently every 30 seconds and requests the official batched usage probe at most once every 10 minutes.
+3. Select live, 5-minute, 30-minute, or manual refresh for local usage collection. A connected Sub2API pool checks account membership every 30 seconds and performs a verified quota refresh every 30 minutes.
 4. Use the language control to switch between English and Simplified Chinese.
 
-For optional Sub2API monitoring, open Relay Capacity settings and sign in with an administrator account. After the first sync, each detected `Plus` account uses `Plus` (1x), while every detected `Pro` account must be assigned `Pro 5x`, `Pro 10x`, or `Pro 20x` manually. An unconfigured Pro account does not receive a guessed default, and pool capacity remains unavailable until it is configured. VibeToken requests Sub2API's official batched usage probe with `force=false`; on released servers without that batch route, it falls back to the released per-account active usage endpoint with at most six concurrent requests. Sub2API may persist the refreshed quota snapshot. VibeToken does not reset, edit, or delete relay accounts.
+For optional Sub2API monitoring, open Relay Capacity settings and sign in with an administrator account. After the first sync, each detected `Plus` account uses `Plus` (1x), while every detected `Pro` account must be assigned `Pro 5x`, `Pro 10x`, or `Pro 20x` manually. An unconfigured Pro account does not receive a guessed default, and pool capacity remains unavailable until it is configured. App startup, Mac wake, a user-initiated refresh, a changed account pool, and the 30-minute schedule all request Sub2API's official usage probe with `force=true`. On released servers without the batch route, VibeToken falls back to the released per-account endpoint with `source=active&force=true` and at most six concurrent requests. It then reads the account list back until every active physical account has a newly persisted, valid 5-hour and 7-day snapshot, or an explicit unavailable or exhausted state. The pool total is published only after the entire set passes validation. A partial or unverifiable refresh hides the current total, reports the verified account count, and keeps only the timestamp of the last successful refresh. VibeToken does not reset, edit, or delete relay accounts.
 
 ## Accuracy
 
@@ -121,7 +121,7 @@ Cache writes use the normal input price. The current estimator does not apply pe
 
 Pricing sources: [OpenAI](https://developers.openai.com/api/docs/pricing/), [Anthropic](https://platform.claude.com/docs/en/about-claude/pricing), and [Google Gemini](https://ai.google.dev/gemini-api/docs/pricing).
 
-For Sub2API, physical account counts remain unweighted, while capacity is weighted as `Plus = 1`, `Pro 5x = 5`, `Pro 10x = 10`, and `Pro 20x = 20`, then normalized to `100%`. Each account contributes the smaller remaining value of its 5-hour and 7-day windows. Temporarily unavailable, explicitly rate-limited, exhausted, stale, or unobserved accounts remain in the total capacity denominator but contribute zero currently available capacity. Shadow accounts are excluded.
+For Sub2API, physical account counts remain unweighted. The UI shows `available / total` for each plan, for example `Plus 7/8 · Pro 4/4`. Capacity is weighted as `Plus = 1`, `Pro 5x = 5`, `Pro 10x = 10`, and `Pro 20x = 20`, then normalized to `100%`. Each account contributes the smaller remaining value of its 5-hour and 7-day windows. Temporarily unavailable, explicitly rate-limited, exhausted, stale, or unobserved accounts remain in the total capacity denominator but contribute zero currently available capacity. Shadow accounts are excluded.
 
 ## Privacy
 
