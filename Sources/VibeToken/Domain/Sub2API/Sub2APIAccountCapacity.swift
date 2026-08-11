@@ -65,6 +65,53 @@ struct Sub2APIAccountCapacityOption: Identifiable, Equatable, Sendable {
     let displayName: String?
     let detectedPlan: String
     let selectedTier: Sub2APICapacityTier?
+    let quotaStatus: Sub2APIAccountQuotaStatus
 
     var id: Int64 { accountID }
+}
+
+enum Sub2APIAccountQuotaStatus: Equatable, Sendable {
+    case current(fiveHourRemainingPercent: Double, sevenDayRemainingPercent: Double)
+    case stale
+    case unobserved
+
+    init(
+        fiveHourUsedPercent: Double?,
+        sevenDayUsedPercent: Double?,
+        usageUpdatedAt: Date?,
+        observedAt: Date,
+        staleAfter: TimeInterval,
+        explicitlyLimited: Bool
+    ) {
+        if explicitlyLimited,
+           fiveHourUsedPercent == nil || sevenDayUsedPercent == nil {
+            self = .current(fiveHourRemainingPercent: 0, sevenDayRemainingPercent: 0)
+            return
+        }
+
+        if let usageUpdatedAt,
+           usageUpdatedAt < observedAt.addingTimeInterval(-max(0, staleAfter)) {
+            self = .stale
+            return
+        }
+
+        guard let fiveHourRemainingPercent = Self.remainingPercent(
+            usedPercent: fiveHourUsedPercent
+        ), let sevenDayRemainingPercent = Self.remainingPercent(
+            usedPercent: sevenDayUsedPercent
+        ) else {
+            self = .unobserved
+            return
+        }
+
+        self = .current(
+            fiveHourRemainingPercent: fiveHourRemainingPercent,
+            sevenDayRemainingPercent: sevenDayRemainingPercent
+        )
+    }
+
+    private static func remainingPercent(usedPercent: Double?) -> Double? {
+        guard let usedPercent, usedPercent.isFinite else { return nil }
+        return 100 - min(100, max(0, usedPercent))
+    }
 }

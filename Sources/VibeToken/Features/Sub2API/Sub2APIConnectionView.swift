@@ -11,6 +11,13 @@ struct Sub2APIConnectionView: View {
     @State private var confirmDisconnect = false
     @State private var selectedTiers: [Int64: Sub2APICapacityTier] = [:]
 
+    private enum TableLayout {
+        static let planWidth: CGFloat = 52
+        static let quotaWidth: CGFloat = 96
+        static let multiplierWidth: CGFloat = 72
+        static let trailingWidth: CGFloat = planWidth + quotaWidth + multiplierWidth + 16
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
@@ -46,7 +53,7 @@ struct Sub2APIConnectionView: View {
         }
         .frame(
             width: state.sub2APIConnection == nil ? 420 : 444,
-            height: state.sub2APIConnection == nil ? 350 : 540
+            height: state.sub2APIConnection == nil ? 350 : 560
         )
         .background(.regularMaterial)
         .onAppear {
@@ -240,11 +247,13 @@ struct Sub2APIConnectionView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 8) {
                 Text(state.text(.detectedPlan))
-                    .frame(width: 52, alignment: .leading)
+                    .frame(width: TableLayout.planWidth, alignment: .leading)
+                Text(state.text(.remainingCapacity))
+                    .frame(width: TableLayout.quotaWidth, alignment: .leading)
                 Text(state.text(.capacityType))
-                    .frame(width: 72, alignment: .leading)
+                    .frame(width: TableLayout.multiplierWidth, alignment: .leading)
             }
-            .frame(width: 132, alignment: .leading)
+            .frame(width: TableLayout.trailingWidth, alignment: .leading)
         }
         .font(.system(size: 10, weight: .semibold))
         .foregroundStyle(.secondary)
@@ -284,7 +293,10 @@ struct Sub2APIConnectionView: View {
                             : Color.secondary.opacity(0.08),
                         in: Capsule()
                     )
-                    .frame(width: 52, alignment: .leading)
+                    .frame(width: TableLayout.planWidth, alignment: .leading)
+
+                accountQuotaView(option.quotaStatus)
+                    .frame(width: TableLayout.quotaWidth, alignment: .leading)
 
                 if isDetectedPro(option) {
                     Picker("", selection: capacitySelectionBinding(for: option)) {
@@ -298,7 +310,7 @@ struct Sub2APIConnectionView: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .tint(selectedTiers[option.accountID] == nil ? .orange : .accentColor)
-                    .frame(width: 72, alignment: .leading)
+                    .frame(width: TableLayout.multiplierWidth, alignment: .leading)
                     .disabled(state.sub2APIStatus.isBusy)
                     .accessibilityLabel(state.text(.capacityType))
                 } else {
@@ -306,10 +318,10 @@ struct Sub2APIConnectionView: View {
                         .font(.system(size: 11, weight: .medium, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
-                        .frame(width: 72, alignment: .leading)
+                        .frame(width: TableLayout.multiplierWidth, alignment: .leading)
                 }
             }
-            .frame(width: 132, alignment: .leading)
+            .frame(width: TableLayout.trailingWidth, alignment: .leading)
         }
         .padding(.horizontal, 12)
         .frame(minHeight: 50)
@@ -318,6 +330,57 @@ struct Sub2APIConnectionView: View {
                 ? Color.orange.opacity(0.055)
                 : Color.clear
         )
+    }
+
+    @ViewBuilder
+    private func accountQuotaView(_ status: Sub2APIAccountQuotaStatus) -> some View {
+        switch status {
+        case .current(let fiveHourRemainingPercent, let sevenDayRemainingPercent):
+            VStack(alignment: .leading, spacing: 2) {
+                quotaLine(label: "5h", remainingPercent: fiveHourRemainingPercent)
+                quotaLine(label: "7d", remainingPercent: sevenDayRemainingPercent)
+            }
+            .accessibilityElement(children: .combine)
+            .help(
+                "\(state.text(.fiveHourWindow)) \(quotaText(fiveHourRemainingPercent)), "
+                    + "\(state.text(.sevenDayWindow)) \(quotaText(sevenDayRemainingPercent))"
+            )
+        case .stale:
+            Text(state.text(.staleData))
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+        case .unobserved:
+            Text(state.text(.missingWindow))
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func quotaLine(label: String, remainingPercent: Double) -> some View {
+        HStack(spacing: 4) {
+            Text(label)
+                .font(.system(size: 9, weight: .medium, design: .rounded))
+                .foregroundStyle(.tertiary)
+                .frame(width: 18, alignment: .leading)
+            Text(quotaText(remainingPercent))
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(quotaColor(remainingPercent))
+        }
+    }
+
+    private func quotaText(_ remainingPercent: Double) -> String {
+        let rounded = remainingPercent.rounded()
+        if abs(remainingPercent - rounded) < 0.05 {
+            return "\(Int(rounded))%"
+        }
+        return String(format: "%.1f%%", remainingPercent)
+    }
+
+    private func quotaColor(_ remainingPercent: Double) -> Color {
+        if remainingPercent <= 0 { return .red }
+        if remainingPercent <= 20 { return .orange }
+        return .primary
     }
 
     private func capacitySelectionBinding(

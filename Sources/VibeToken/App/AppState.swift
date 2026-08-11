@@ -457,11 +457,35 @@ final class AppState {
         )
         sub2APIAccountCapacityOptions = (1...11).map { id in
             let isPro = id <= 4
+            let displayName = id == 1 ? "研发主账号（超长名称布局验收）" : nil
+            let quotaStatus: Sub2APIAccountQuotaStatus
+            switch id {
+            case 1:
+                quotaStatus = .current(
+                    fiveHourRemainingPercent: 15,
+                    sevenDayRemainingPercent: 0
+                )
+            case 2:
+                quotaStatus = .stale
+            case 3:
+                quotaStatus = .unobserved
+            case 6:
+                quotaStatus = .current(
+                    fiveHourRemainingPercent: 19.5,
+                    sevenDayRemainingPercent: 68
+                )
+            default:
+                quotaStatus = .current(
+                    fiveHourRemainingPercent: id == 5 ? 100 : 0,
+                    sevenDayRemainingPercent: id == 5 ? 79 : 0
+                )
+            }
             return Sub2APIAccountCapacityOption(
                 accountID: Int64(id),
-                displayName: nil,
+                displayName: displayName,
                 detectedPlan: isPro ? "Pro" : "Plus",
-                selectedTier: isPro ? .pro20 : .plus
+                selectedTier: isPro ? .pro20 : .plus,
+                quotaStatus: quotaStatus
             )
         }
         sub2APIStatus = .connected

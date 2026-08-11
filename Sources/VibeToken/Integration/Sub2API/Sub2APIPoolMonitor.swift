@@ -159,13 +159,30 @@ actor Sub2APIPoolMonitor {
 
     func capacityOptions() throws -> [Sub2APIAccountCapacityOption] {
         let tiers = try savedTiers()
-        return physicalAccountPayloads().map { payload in
-            Sub2APIAccountCapacityOption(
+        let observedAt = Date()
+        let payloads = physicalAccountPayloads()
+        let prioritizedPayloads = payloads.filter(\.requiresManualCapacityTier)
+            + payloads.filter { !$0.requiresManualCapacityTier }
+        return prioritizedPayloads.map { payload in
+            let selectedTier = payload.resolvedCapacityTier(
+                configuredTier: tiers[payload.id]
+            )
+            let snapshot = payload.snapshot(
+                now: observedAt,
+                capacityTier: selectedTier
+            )
+            return Sub2APIAccountCapacityOption(
                 accountID: payload.id,
                 displayName: payload.capacityDisplayName,
                 detectedPlan: payload.detectedPlan,
-                selectedTier: payload.resolvedCapacityTier(
-                    configuredTier: tiers[payload.id]
+                selectedTier: selectedTier,
+                quotaStatus: Sub2APIAccountQuotaStatus(
+                    fiveHourUsedPercent: snapshot.fiveHourUsedPercent,
+                    sevenDayUsedPercent: snapshot.sevenDayUsedPercent,
+                    usageUpdatedAt: snapshot.usageUpdatedAt,
+                    observedAt: observedAt,
+                    staleAfter: staleAfter,
+                    explicitlyLimited: snapshot.hasExplicitZeroCapacityState(at: observedAt)
                 )
             )
         }
