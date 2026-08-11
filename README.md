@@ -40,8 +40,8 @@ VibeToken is built for developers who use AI coding tools throughout the day and
 - Input, cache, output, reasoning, model, tool, and session breakdowns.
 - Versioned OpenAI, Anthropic, and Google API price estimates with pricing coverage shown explicitly.
 - Duplicate emission and fork/subagent replay filtering.
-- Optional read-only Sub2API pool monitoring for Codex 5-hour and 7-day windows.
-- Native macOS menu bar UI in English and Simplified Chinese.
+- Optional read-only Sub2API pool monitoring with per-account remaining quota for Codex 5-hour and 7-day windows.
+- Native macOS menu bar and Dock entry points in English and Simplified Chinese.
 
 ## Support
 

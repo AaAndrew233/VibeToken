@@ -40,8 +40,8 @@ VibeToken 面向高频使用 AI 编程工具的开发者，在一个菜单栏弹
 - 展示输入、缓存、输出、推理、模型、工具和会话分布。
 - 使用带版本的 OpenAI、Anthropic 和 Google API 单价估算费用，并明确展示定价覆盖率。
 - 过滤重复累计事件和 fork/subagent replay。
-- 可选只读连接 Sub2API，汇总 Codex 5h/7d 账号池额度。
-- 原生 macOS 菜单栏界面，支持英文和简体中文。
+- 可选只读连接 Sub2API，展示每个账号及账号池的 Codex 5h/7d 剩余额度。
+- 原生 macOS 菜单栏与程序坞入口，支持英文和简体中文。
 
 ## 支持范围
 
