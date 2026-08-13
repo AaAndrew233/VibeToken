@@ -63,7 +63,6 @@ enum CopyKey: String, Sendable {
     case syncing
     case refreshSucceeded
     case refreshFailed
-    case checkForUpdates
     case relayCapacity
     case fiveHourWindow
     case sevenDayWindow
@@ -172,7 +171,6 @@ enum Localizer {
         .syncing: "正在同步",
         .refreshSucceeded: "同步完成",
         .refreshFailed: "同步失败",
-        .checkForUpdates: "检查更新",
         .relayCapacity: "中转额度",
         .fiveHourWindow: "5 小时窗口",
         .sevenDayWindow: "7 天窗口",
@@ -271,7 +269,6 @@ enum Localizer {
         .syncing: "Syncing",
         .refreshSucceeded: "Synced",
         .refreshFailed: "Sync failed",
-        .checkForUpdates: "Check for Updates",
         .relayCapacity: "Relay Capacity",
         .fiveHourWindow: "5-Hour Window",
         .sevenDayWindow: "7-Day Window",

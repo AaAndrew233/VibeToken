@@ -85,9 +85,7 @@ swift test
 open "dist/VibeToken.app"
 ```
 
-The build script creates an ad-hoc signed app at `dist/VibeToken.app` and embeds Sparkle. The public EdDSA update key and the stable GitHub Pages appcast URL are stored in `Info.plist`. The appcast is published from `Distribution/Sparkle/appcast.xml`; it remains empty until a Developer ID signed, notarized, and Sparkle-signed release is ready. The local build is suitable for development, but it is not equivalent to a public release.
-
-The Sparkle feed uses HTTPS. Never commit the Sparkle private key; only its public EdDSA key is embedded in the app. A production update still requires a Developer ID signed and notarized archive and a Sparkle-signed update entry in the appcast.
+The build script creates an ad-hoc signed app at `dist/VibeToken.app`. It is suitable for local use, but it is not equivalent to a Developer ID signed and notarized release.
 
 ### Sharing
 

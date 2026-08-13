@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
-  <channel>
-    <title>VibeToken Updates</title>
-    <link>https://giraffegzy-bot.github.io/VibeToken/</link>
-    <description>Signed VibeToken releases for Sparkle.</description>
-    <language>en</language>
-  </channel>
-</rss>

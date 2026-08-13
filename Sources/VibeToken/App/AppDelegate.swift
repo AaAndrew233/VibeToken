@@ -8,7 +8,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let outsideClickMonitor = OutsideClickMonitor()
     private var visualTestWindow: NSWindow?
     private var state: AppState?
-    private var updateController: AppUpdateController?
     private var menuBarSummaryAnimator: MenuBarSummaryAnimator?
     private var wakeObserver: NSObjectProtocol?
 
@@ -121,10 +120,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 state.installSub2APIVisualTestFixture()
             }
             self.state = state
-            let updateController = AppUpdateController()
-            self.updateController = updateController
             configureStatusItem(state: state)
-            configurePopover(state: state, updateController: updateController)
+            configurePopover(state: state)
             state.startMonitoring()
             wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
                 forName: NSWorkspace.didWakeNotification,
@@ -173,7 +170,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
     }
 
-    private func configurePopover(state: AppState, updateController: AppUpdateController) {
+    private func configurePopover(state: AppState) {
         popover.behavior = .transient
         popover.animates = true
         popover.delegate = self
@@ -181,7 +178,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.contentViewController = NSHostingController(
             rootView: MenuBarView(
                 state: state,
-                updateController: updateController,
                 onQuit: { NSApp.terminate(nil) }
             )
         )
@@ -240,7 +236,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     private func showPopoverVisualTestWindow() {
-        guard let state, let updateController else { return }
+        guard let state else { return }
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 720),
             styleMask: [.titled, .closable],
@@ -252,7 +248,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         window.contentViewController = NSHostingController(
             rootView: MenuBarView(
                 state: state,
-                updateController: updateController,
                 onQuit: { NSApp.terminate(nil) }
             )
         )

@@ -85,9 +85,7 @@ swift test
 open "dist/VibeToken.app"
 ```
 
-构建脚本会在 `dist/VibeToken.app` 生成 ad-hoc 签名应用并嵌入 Sparkle。EdDSA 更新公钥和固定的 GitHub Pages appcast 地址保存在 `Info.plist` 中。`Distribution/Sparkle/appcast.xml` 会发布为空清单，直到首个经过 Developer ID 签名、Apple 公证和 Sparkle 签名的版本准备完成。当前本地产物适合开发使用，但不等同于正式安装包。
-
-Sparkle 更新源使用 HTTPS。Sparkle 私钥不能提交到仓库，应用中只嵌入 EdDSA 公钥。正式更新仍需要 Developer ID 签名与 Apple 公证，并在 appcast 中加入经过 Sparkle 签名的更新条目。
+构建脚本会在 `dist/VibeToken.app` 生成 ad-hoc 签名应用，适合本机使用，但不等同于经过 Developer ID 签名和 Apple 公证的正式安装包。
 
 ### 分享方式
 
