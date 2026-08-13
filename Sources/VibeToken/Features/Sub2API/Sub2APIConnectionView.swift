@@ -269,10 +269,15 @@ struct Sub2APIConnectionView: View {
                     .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
                     .help(option.displayName ?? "\(state.text(.account)) #\(option.accountID)")
-                if option.displayName != nil {
-                    Text("#\(option.accountID)")
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundStyle(.tertiary)
+                if option.displayName != nil || option.runtimeStatus != .available {
+                    HStack(spacing: 6) {
+                        if option.displayName != nil {
+                            Text("#\(option.accountID)")
+                                .font(.system(size: 9, design: .monospaced))
+                                .foregroundStyle(.tertiary)
+                        }
+                        accountRuntimeBadge(option.runtimeStatus)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -330,6 +335,28 @@ struct Sub2APIConnectionView: View {
                 ? Color.orange.opacity(0.055)
                 : Color.clear
         )
+    }
+
+    @ViewBuilder
+    private func accountRuntimeBadge(_ status: Sub2APIAccountRuntimeStatus) -> some View {
+        switch status {
+        case .available:
+            EmptyView()
+        case .rateLimited:
+            runtimeBadge(state.text(.accountRateLimited), color: .orange)
+        case .unavailable:
+            runtimeBadge(state.text(.accountUnavailable), color: .red)
+        }
+    }
+
+    private func runtimeBadge(_ title: String, color: Color) -> some View {
+        Text(title)
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(color.opacity(0.12), in: Capsule())
+            .accessibilityLabel(title)
     }
 
     @ViewBuilder

@@ -66,6 +66,7 @@ final class Sub2APIPoolMonitorTests: XCTestCase {
         XCTAssertEqual(initialOptions.map(\.accountID), [1, 2, 4])
         XCTAssertEqual(initialOptions.map(\.selectedTier), [nil, nil, .plus])
         XCTAssertEqual(initialOptions.map(\.detectedPlan), ["Pro", "Pro", "Plus"])
+        XCTAssertEqual(initialOptions.map(\.runtimeStatus), [.available, .available, .available])
         XCTAssertEqual(
             initialOptions.map(\.quotaStatus),
             [
@@ -205,6 +206,87 @@ final class Sub2APIPoolMonitorTests: XCTestCase {
             ),
             .unobserved
         )
+    }
+
+    func testAccountRuntimeStatusUsesOfficialLimitAndAvailabilityFields() {
+        let observedAt = Date(timeIntervalSince1970: 2_000_000)
+        let future = observedAt.addingTimeInterval(60)
+        let past = observedAt.addingTimeInterval(-1)
+
+        XCTAssertEqual(
+            Sub2APIAccountRuntimeStatus(
+                status: "ACTIVE",
+                schedulable: true,
+                rateLimitResetAt: nil,
+                overloadUntil: nil,
+                tempUnschedulableUntil: nil,
+                observedAt: observedAt
+            ),
+            .available
+        )
+        XCTAssertEqual(
+            Sub2APIAccountRuntimeStatus(
+                status: "active",
+                schedulable: false,
+                rateLimitResetAt: future,
+                overloadUntil: future,
+                tempUnschedulableUntil: future,
+                observedAt: observedAt
+            ),
+            .rateLimited
+        )
+        XCTAssertEqual(
+            Sub2APIAccountRuntimeStatus(
+                status: "error",
+                schedulable: true,
+                rateLimitResetAt: future,
+                overloadUntil: nil,
+                tempUnschedulableUntil: nil,
+                observedAt: observedAt
+            ),
+            .unavailable
+        )
+
+        XCTAssertEqual(
+            Sub2APIAccountRuntimeStatus(
+                status: "active",
+                schedulable: true,
+                rateLimitResetAt: observedAt,
+                overloadUntil: observedAt,
+                tempUnschedulableUntil: observedAt,
+                observedAt: observedAt
+            ),
+            .available
+        )
+
+        for status in [
+            Sub2APIAccountRuntimeStatus(
+                status: "active",
+                schedulable: false,
+                rateLimitResetAt: past,
+                overloadUntil: nil,
+                tempUnschedulableUntil: nil,
+                observedAt: observedAt
+            ),
+            Sub2APIAccountRuntimeStatus(
+                status: "active",
+                schedulable: true,
+                rateLimitResetAt: nil,
+                overloadUntil: future,
+                tempUnschedulableUntil: nil,
+                observedAt: observedAt
+            ),
+            Sub2APIAccountRuntimeStatus(
+                status: "active",
+                schedulable: true,
+                rateLimitResetAt: nil,
+                overloadUntil: nil,
+                tempUnschedulableUntil: future,
+                observedAt: observedAt
+            )
+        ] {
+            XCTAssertEqual(status, .unavailable)
+        }
     }
 
     func testInitialRefreshProbesActivePhysicalAccountsAndUsesRefetchedSnapshot() async throws {

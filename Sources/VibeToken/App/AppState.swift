@@ -458,6 +458,11 @@ final class AppState {
         sub2APIAccountCapacityOptions = (1...11).map { id in
             let isPro = id <= 4
             let displayName = id == 1 ? "研发主账号（超长名称布局验收）" : nil
+            let runtimeStatus: Sub2APIAccountRuntimeStatus = switch id {
+            case 1: .rateLimited
+            case 2: .unavailable
+            default: .available
+            }
             let quotaStatus: Sub2APIAccountQuotaStatus
             switch id {
             case 1:
@@ -485,6 +490,7 @@ final class AppState {
                 displayName: displayName,
                 detectedPlan: isPro ? "Pro" : "Plus",
                 selectedTier: isPro ? .pro20 : .plus,
+                runtimeStatus: runtimeStatus,
                 quotaStatus: quotaStatus
             )
         }

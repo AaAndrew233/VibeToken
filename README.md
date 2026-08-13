@@ -40,7 +40,7 @@ VibeToken is built for developers who use AI coding tools throughout the day and
 - Input, cache, output, reasoning, model, tool, and session breakdowns.
 - Versioned OpenAI, Anthropic, and Google API price estimates with pricing coverage shown explicitly.
 - Duplicate emission and fork/subagent replay filtering.
-- Optional read-only Sub2API pool monitoring with per-account remaining quota for Codex 5-hour and 7-day windows.
+- Optional read-only Sub2API pool monitoring with per-account remaining quota and explicit rate-limited or unavailable states for Codex 5-hour and 7-day windows.
 - Native macOS menu bar and Dock entry points in English and Simplified Chinese.
 
 ## Support
@@ -85,7 +85,9 @@ swift test
 open "dist/VibeToken.app"
 ```
 
-The build script creates an ad-hoc signed app at `dist/VibeToken.app`. It is suitable for local use, but it is not equivalent to a Developer ID signed and notarized release.
+The build script creates an ad-hoc signed app at `dist/VibeToken.app` and embeds Sparkle. The public EdDSA update key and the stable GitHub Pages appcast URL are stored in `Info.plist`. The appcast is published from `Distribution/Sparkle/appcast.xml`; it remains empty until a Developer ID signed, notarized, and Sparkle-signed release is ready. The local build is suitable for development, but it is not equivalent to a public release.
+
+The Sparkle feed uses HTTPS. Never commit the Sparkle private key; only its public EdDSA key is embedded in the app. A production update still requires a Developer ID signed and notarized archive and a Sparkle-signed update entry in the appcast.
 
 ### Sharing
 

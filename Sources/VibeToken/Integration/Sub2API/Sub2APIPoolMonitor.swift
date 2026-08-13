@@ -176,6 +176,14 @@ actor Sub2APIPoolMonitor {
                 displayName: payload.capacityDisplayName,
                 detectedPlan: payload.detectedPlan,
                 selectedTier: selectedTier,
+                runtimeStatus: Sub2APIAccountRuntimeStatus(
+                    status: snapshot.status,
+                    schedulable: snapshot.schedulable,
+                    rateLimitResetAt: snapshot.rateLimitResetAt,
+                    overloadUntil: snapshot.overloadUntil,
+                    tempUnschedulableUntil: snapshot.tempUnschedulableUntil,
+                    observedAt: observedAt
+                ),
                 quotaStatus: Sub2APIAccountQuotaStatus(
                     fiveHourUsedPercent: snapshot.fiveHourUsedPercent,
                     sevenDayUsedPercent: snapshot.sevenDayUsedPercent,

@@ -65,9 +65,44 @@ struct Sub2APIAccountCapacityOption: Identifiable, Equatable, Sendable {
     let displayName: String?
     let detectedPlan: String
     let selectedTier: Sub2APICapacityTier?
+    let runtimeStatus: Sub2APIAccountRuntimeStatus
     let quotaStatus: Sub2APIAccountQuotaStatus
 
     var id: Int64 { accountID }
+}
+
+enum Sub2APIAccountRuntimeStatus: Equatable, Sendable {
+    case available
+    case rateLimited
+    case unavailable
+
+    init(
+        status: String,
+        schedulable: Bool,
+        rateLimitResetAt: Date?,
+        overloadUntil: Date?,
+        tempUnschedulableUntil: Date?,
+        observedAt: Date
+    ) {
+        guard status.caseInsensitiveCompare("active") == .orderedSame else {
+            self = .unavailable
+            return
+        }
+
+        if rateLimitResetAt.map({ $0 > observedAt }) == true {
+            self = .rateLimited
+            return
+        }
+
+        if !schedulable
+            || overloadUntil.map({ $0 > observedAt }) == true
+            || tempUnschedulableUntil.map({ $0 > observedAt }) == true {
+            self = .unavailable
+            return
+        }
+
+        self = .available
+    }
 }
 
 enum Sub2APIAccountQuotaStatus: Equatable, Sendable {
