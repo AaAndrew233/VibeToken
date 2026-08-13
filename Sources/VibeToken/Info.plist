@@ -25,8 +25,14 @@
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>LSUIElement</key>
-    <true/>
+    <false/>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUFeedURL</key>
+    <string>https://giraffegzy-bot.github.io/VibeToken/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>wBP0C7X6koXm29MiBQVj36+MUQwr7/BGvpBelFNB2GE=</string>
 </dict>
 </plist>

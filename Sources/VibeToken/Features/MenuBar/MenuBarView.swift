@@ -11,6 +11,7 @@ struct MenuBarView: View {
     @State private var manualRefreshFeedback = ManualRefreshFeedback.idle
     @State private var showingSub2APIConnection = false
 
+    let updateController: AppUpdateController
     let onQuit: () -> Void
 
     private let distributionColors: [Color] = [
@@ -110,6 +111,17 @@ struct MenuBarView: View {
                 .font(.system(size: 15, weight: .semibold))
             Spacer()
             statusLabel
+            if updateController.isConfigured {
+                Button {
+                    updateController.checkForUpdates()
+                } label: {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(state.text(.checkForUpdates))
+                .help(state.text(.checkForUpdates))
+            }
             Menu {
                 ForEach(AppLanguage.allCases) { language in
                     Button(language.shortLabel) {

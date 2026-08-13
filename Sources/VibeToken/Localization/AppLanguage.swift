@@ -63,6 +63,7 @@ enum CopyKey: String, Sendable {
     case syncing
     case refreshSucceeded
     case refreshFailed
+    case checkForUpdates
     case relayCapacity
     case fiveHourWindow
     case sevenDayWindow
@@ -89,6 +90,8 @@ enum CopyKey: String, Sendable {
     case detectedPlan
     case capacityType
     case account
+    case accountRateLimited
+    case accountUnavailable
     case saveConfiguration
     case capacityConfigurationHint
     case noAccountsFound
@@ -169,6 +172,7 @@ enum Localizer {
         .syncing: "正在同步",
         .refreshSucceeded: "同步完成",
         .refreshFailed: "同步失败",
+        .checkForUpdates: "检查更新",
         .relayCapacity: "中转额度",
         .fiveHourWindow: "5 小时窗口",
         .sevenDayWindow: "7 天窗口",
@@ -195,8 +199,10 @@ enum Localizer {
         .detectedPlan: "套餐",
         .capacityType: "倍数",
         .account: "账号",
+        .accountRateLimited: "限流",
+        .accountUnavailable: "不可用",
         .saveConfiguration: "保存配置",
-        .capacityConfigurationHint: "套餐已自动识别；仅 Pro 账号需要确认额度倍数。",
+        .capacityConfigurationHint: "额度来自最近一次正式刷新；仅 Pro 账号需要确认额度倍数。",
         .noAccountsFound: "未找到可同步账号",
         .selectCapacityType: "请选择",
         .unconfiguredCapacity: "待配置额度",
@@ -265,6 +271,7 @@ enum Localizer {
         .syncing: "Syncing",
         .refreshSucceeded: "Synced",
         .refreshFailed: "Sync failed",
+        .checkForUpdates: "Check for Updates",
         .relayCapacity: "Relay Capacity",
         .fiveHourWindow: "5-Hour Window",
         .sevenDayWindow: "7-Day Window",
@@ -291,8 +298,10 @@ enum Localizer {
         .detectedPlan: "Plan",
         .capacityType: "Multiplier",
         .account: "Account",
+        .accountRateLimited: "Rate Limited",
+        .accountUnavailable: "Unavailable",
         .saveConfiguration: "Save Configuration",
-        .capacityConfigurationHint: "Plans are detected automatically. Only Pro accounts need a confirmed multiplier.",
+        .capacityConfigurationHint: "Quotas come from the latest verified refresh. Only Pro accounts need a confirmed multiplier.",
         .noAccountsFound: "No syncable accounts found",
         .selectCapacityType: "Select",
         .unconfiguredCapacity: "Capacity Not Set",
