@@ -145,18 +145,39 @@ struct MenuBarView: View {
     }
 
     private var rangePicker: some View {
-        Picker("", selection: Binding(
-            get: { state.selectedTimeRange },
-            set: { state.selectTimeRange($0) }
-        )) {
-            ForEach(UsageTimeRange.allCases) { range in
-                Text(state.timeRangeTitle(range)).tag(range)
+        HStack(spacing: 12) {
+            Picker("", selection: Binding(
+                get: { state.selectedTimeRange },
+                set: { state.selectTimeRange($0) }
+            )) {
+                ForEach(UsageTimeRange.allCases) { range in
+                    Text(state.timeRangeTitle(range)).tag(range)
+                }
             }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(maxWidth: .infinity)
+
+            dockIconPicker
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
+    }
+
+    private var dockIconPicker: some View {
+        Picker(selection: Binding(
+            get: { state.dockIconMode },
+            set: { state.dockIconMode = $0 }
+        )) {
+            ForEach(DockIconMode.allCases) { mode in
+                Text(state.dockIconModeTitle(mode)).tag(mode)
+            }
+        } label: {
+            Label(state.text(.dockIcon), systemImage: "dock.rectangle")
+                .font(.system(size: 12))
+        }
+        .pickerStyle(.menu)
+        .fixedSize()
     }
 
     private var summary: some View {

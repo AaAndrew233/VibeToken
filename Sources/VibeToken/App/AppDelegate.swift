@@ -12,7 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var wakeObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.regular)
+        applyDockIconMode(DockIconMode.load())
 
         do {
             let configuration = AppConfiguration.live()
@@ -120,6 +120,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 state.installSub2APIVisualTestFixture()
             }
             self.state = state
+            state.onDockIconModeChange = { [weak self] mode in
+                self?.applyDockIconMode(mode)
+            }
+            applyDockIconMode(state.dockIconMode)
             configureStatusItem(state: state)
             configurePopover(state: state)
             state.startMonitoring()
@@ -167,6 +171,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         menuBarSummaryAnimator = animator
         state.onMenuBarSummaryChange = { [weak animator] tokens, cost, locale in
             animator?.update(tokens: tokens, estimatedCost: cost, locale: locale)
+        }
+    }
+
+    private func applyDockIconMode(_ mode: DockIconMode) {
+        switch mode {
+        case .always:
+            NSApp.setActivationPolicy(.regular)
+        case .menuBarOnly:
+            NSApp.setActivationPolicy(.accessory)
         }
     }
 

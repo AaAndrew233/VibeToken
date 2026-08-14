@@ -26,6 +26,13 @@ final class AppState {
     private(set) var isRefreshing = false
     private(set) var lastRefreshAt: Date?
     var sourceStatus: SourceStatus = .loading
+    var dockIconMode: DockIconMode {
+        didSet {
+            guard dockIconMode != oldValue else { return }
+            UserDefaults.standard.set(dockIconMode.rawValue, forKey: DockIconMode.userDefaultsKey)
+            onDockIconModeChange?(dockIconMode)
+        }
+    }
     var refreshMode: RefreshMode {
         didSet {
             guard refreshMode != oldValue else { return }
@@ -57,6 +64,7 @@ final class AppState {
     @ObservationIgnored private var isSub2APIVisualFixture = false
     @ObservationIgnored private var hasAttemptedSub2APIRestore = false
     @ObservationIgnored var onMenuBarSummaryChange: ((Int64?, MoneyAmount?, Locale) -> Void)?
+    @ObservationIgnored var onDockIconModeChange: ((DockIconMode) -> Void)?
 
     private static let languageKey = "appLanguage"
     private static let timeRangeKey = "usageTimeRange"
@@ -85,6 +93,7 @@ final class AppState {
             ?? .simplifiedChinese
         selectedTimeRange = UserDefaults.standard.string(forKey: Self.timeRangeKey)
             .flatMap(UsageTimeRange.init(rawValue:)) ?? .today
+        dockIconMode = DockIconMode.load()
         refreshMode = UserDefaults.standard.string(forKey: Self.refreshModeKey)
             .flatMap(RefreshMode.init(rawValue:)) ?? .realTime
     }
@@ -214,6 +223,13 @@ final class AppState {
         case .fiveMinutes: text(.fiveMinuteRefresh)
         case .thirtyMinutes: text(.thirtyMinuteRefresh)
         case .manual: text(.manualRefresh)
+        }
+    }
+
+    func dockIconModeTitle(_ mode: DockIconMode? = nil) -> String {
+        switch mode ?? dockIconMode {
+        case .always: text(.dockIconAlways)
+        case .menuBarOnly: text(.dockIconMenuBarOnly)
         }
     }
 

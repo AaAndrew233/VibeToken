@@ -34,6 +34,9 @@ enum CopyKey: String, Sendable {
     case overview
     case dataSources
     case settings
+    case dockIcon
+    case dockIconAlways
+    case dockIconMenuBarOnly
     case refreshMode
     case eventDriven
     case realTimeRefresh
@@ -142,6 +145,9 @@ enum Localizer {
         .overview: "概览",
         .dataSources: "数据源",
         .settings: "设置",
+        .dockIcon: "程序坞图标",
+        .dockIconAlways: "常驻",
+        .dockIconMenuBarOnly: "仅菜单栏",
         .refreshMode: "刷新方式",
         .eventDriven: "实时（事件驱动）",
         .realTimeRefresh: "实时",
@@ -240,6 +246,9 @@ enum Localizer {
         .overview: "Overview",
         .dataSources: "Data Sources",
         .settings: "Settings",
+        .dockIcon: "Dock Icon",
+        .dockIconAlways: "Always Show",
+        .dockIconMenuBarOnly: "Menu Bar Only",
         .refreshMode: "Refresh Mode",
         .eventDriven: "Live (Event-driven)",
         .realTimeRefresh: "Real-time",
