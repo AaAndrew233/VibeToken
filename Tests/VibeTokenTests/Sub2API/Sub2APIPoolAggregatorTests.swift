@@ -219,7 +219,7 @@ final class Sub2APIPoolAggregatorTests: XCTestCase {
         XCTAssertEqual(snapshot.effectiveCapacity.nextRecoveryAt, now.addingTimeInterval(600))
     }
 
-    func testNextRecoveryIgnoresPastAndCurrentResetTimes() {
+    func testNextRecoveryWaitsForEveryBlockingWindowToReset() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let futureReset = now.addingTimeInterval(600)
         let snapshot = Sub2APIPoolAggregator.aggregate(
@@ -245,9 +245,56 @@ final class Sub2APIPoolAggregatorTests: XCTestCase {
             staleAfter: 900
         )
 
-        XCTAssertEqual(snapshot.effectiveCapacity.nextRecoveryAt, futureReset)
+        XCTAssertEqual(snapshot.effectiveCapacity.nextRecoveryAt, now.addingTimeInterval(1_200))
         XCTAssertEqual(snapshot.fiveHour.nextResetAt, futureReset)
         XCTAssertEqual(snapshot.sevenDay.nextResetAt, now.addingTimeInterval(1_200))
+    }
+
+    func testNextRecoveryChoosesEarliestFullyRecoverableAccount() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let snapshot = Sub2APIPoolAggregator.aggregate(
+            accounts: [
+                account(
+                    id: 1,
+                    fiveHour: 100,
+                    sevenDay: 100,
+                    updatedAt: now,
+                    fiveHourResetAt: now.addingTimeInterval(600),
+                    sevenDayResetAt: now.addingTimeInterval(1_200)
+                ),
+                account(
+                    id: 2,
+                    fiveHour: 100,
+                    sevenDay: 20,
+                    updatedAt: now,
+                    fiveHourResetAt: now.addingTimeInterval(900)
+                )
+            ],
+            fetchedAt: now,
+            staleAfter: 900
+        )
+
+        XCTAssertEqual(snapshot.effectiveCapacity.nextRecoveryAt, now.addingTimeInterval(900))
+    }
+
+    func testNextRecoveryIsUnknownWhenAnyBlockingWindowHasNoFutureReset() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let snapshot = Sub2APIPoolAggregator.aggregate(
+            accounts: [
+                account(
+                    id: 1,
+                    fiveHour: 100,
+                    sevenDay: 100,
+                    updatedAt: now,
+                    fiveHourResetAt: now.addingTimeInterval(600),
+                    sevenDayResetAt: nil
+                )
+            ],
+            fetchedAt: now,
+            staleAfter: 900
+        )
+
+        XCTAssertNil(snapshot.effectiveCapacity.nextRecoveryAt)
     }
 
     func testNextRecoveryIsNilWhenAllResetTimesHaveExpired() {

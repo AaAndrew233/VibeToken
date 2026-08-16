@@ -61,6 +61,7 @@ final class AppState {
     @ObservationIgnored private var forceRemoteRefreshRequestedWhileBusy = false
     @ObservationIgnored private var sub2APIRefreshTask: Task<Bool, Never>?
     @ObservationIgnored private var sub2APIForceRefreshRequestedWhileBusy = false
+    @ObservationIgnored private var sub2APIPendingRecoveryRefreshAt: Date?
     @ObservationIgnored private var isSub2APIVisualFixture = false
     @ObservationIgnored private var hasAttemptedSub2APIRestore = false
     @ObservationIgnored var onMenuBarSummaryChange: ((Int64?, MoneyAmount?, Locale) -> Void)?
@@ -146,7 +147,13 @@ final class AppState {
                     return
                 }
                 await restoreSub2APIConnectionIfNeeded()
-                _ = await refreshSub2APIPool(force: false, displaysProgress: false)
+                let shouldRefreshRecoveredQuota = sub2APIPendingRecoveryRefreshAt.map {
+                    $0 <= Date()
+                } ?? false
+                _ = await refreshSub2APIPool(
+                    force: shouldRefreshRecoveredQuota,
+                    displaysProgress: false
+                )
             }
         }
     }
@@ -164,6 +171,7 @@ final class AppState {
         sub2APIRefreshTask?.cancel()
         sub2APIRefreshTask = nil
         sub2APIForceRefreshRequestedWhileBusy = false
+        sub2APIPendingRecoveryRefreshAt = nil
         fileObserver.stop()
     }
 
@@ -343,6 +351,7 @@ final class AppState {
             sub2APIAccountCapacityOptions = []
             sub2APILastError = nil
             sub2APILastSuccessfulRefreshAt = nil
+            sub2APIPendingRecoveryRefreshAt = nil
             pendingSub2APIMaskedEmail = nil
             sub2APIStatus = .disconnected
         } catch let error as Sub2APIError {
@@ -378,6 +387,7 @@ final class AppState {
             }
             if let snapshot = try await sub2APIPoolMonitor.saveCapacitySelections(selections) {
                 sub2APIPoolSnapshot = snapshot
+                sub2APIPendingRecoveryRefreshAt = snapshot.effectiveCapacity.nextRecoveryAt
             }
             sub2APIAccountCapacityOptions = try await sub2APIPoolMonitor.capacityOptions()
             sub2APIStatus = .connected
@@ -630,10 +640,12 @@ final class AppState {
             sub2APIPoolSnapshot = snapshot
             sub2APIAccountCapacityOptions = options
             sub2APILastSuccessfulRefreshAt = lastSuccessfulRefreshAt
+            sub2APIPendingRecoveryRefreshAt = snapshot.effectiveCapacity.nextRecoveryAt
             sub2APILastError = nil
             sub2APIStatus = .connected
         case .disconnected:
             sub2APIPoolSnapshot = nil
+            sub2APIPendingRecoveryRefreshAt = nil
             sub2APIStatus = .disconnected
         case .failed(let error):
             sub2APIPoolSnapshot = nil

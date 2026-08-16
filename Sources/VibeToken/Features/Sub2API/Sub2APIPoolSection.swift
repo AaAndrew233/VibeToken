@@ -370,7 +370,7 @@ struct Sub2APIPoolSection: View {
         let formatter = DateFormatter()
         formatter.locale = locale
         formatter.timeZone = .current
-        formatter.dateFormat = state.language == .simplifiedChinese ? "M/d HH:mm" : "MMM d, HH:mm"
+        formatter.dateFormat = state.language == .simplifiedChinese ? "M/d HH:mm:ss" : "MMM d, HH:mm:ss"
         return formatter.string(from: date)
     }
 

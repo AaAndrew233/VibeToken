@@ -276,15 +276,17 @@ enum Sub2APIPoolAggregator {
     ) -> Sub2APIEffectiveCapacitySnapshot {
         let values = accounts.compactMap { account -> EffectiveAccountValue? in
             let isUnavailable = zeroContributionIDs.contains(account.id)
+            let isWindowLimited = windowLimitedIDs.contains(account.id)
+            let recoveryAt = isWindowLimited
+                ? account.estimatedRecoveryAt(after: fetchedAt)
+                : nil
             guard let fiveHourUsed = account.fiveHourUsedPercent,
                   let sevenDayUsed = account.sevenDayUsedPercent else {
                 return EffectiveAccountValue(
                     fiveHourRemaining: 0,
-                    fiveHourResetAt: account.fiveHourResetAt,
                     sevenDayRemaining: 0,
-                    sevenDayResetAt: account.sevenDayResetAt,
-                    rateLimitResetAt: account.rateLimitResetAt,
-                    isWindowLimited: windowLimitedIDs.contains(account.id),
+                    recoveryAt: recoveryAt,
+                    isWindowLimited: isWindowLimited,
                     isAvailable: false,
                     capacityWeight: account.capacityTier?.multiplier ?? 0
                 )
@@ -297,32 +299,16 @@ enum Sub2APIPoolAggregator {
                 : remainingFraction(usedPercent: sevenDayUsed)
             return EffectiveAccountValue(
                 fiveHourRemaining: fiveHourRemaining,
-                fiveHourResetAt: account.fiveHourResetAt,
                 sevenDayRemaining: sevenDayRemaining,
-                sevenDayResetAt: account.sevenDayResetAt,
-                rateLimitResetAt: account.rateLimitResetAt,
-                isWindowLimited: windowLimitedIDs.contains(account.id),
+                recoveryAt: recoveryAt,
+                isWindowLimited: isWindowLimited,
                 isAvailable: !isUnavailable,
                 capacityWeight: account.capacityTier?.multiplier ?? 0
             )
         }
         let availableValues = values.filter(\.isAvailable)
         let windowLimitedValues = values.filter(\.isWindowLimited)
-        let nextRecoveryAt = values.flatMap { value -> [Date] in
-            var resetDates: [Date] = []
-            if value.isWindowLimited, let resetAt = value.rateLimitResetAt {
-                resetDates.append(resetAt)
-            }
-            if value.fiveHourRemaining <= 0, let resetAt = value.fiveHourResetAt {
-                resetDates.append(resetAt)
-            }
-            if value.sevenDayRemaining <= 0, let resetAt = value.sevenDayResetAt {
-                resetDates.append(resetAt)
-            }
-            return resetDates
-        }
-        .filter { $0 > fetchedAt }
-        .min()
+        let nextRecoveryAt = windowLimitedValues.compactMap(\.recoveryAt).min()
         let fiveHourRemainingEquivalentAccounts = values.reduce(0) {
             $0 + $1.fiveHourRemaining * $1.capacityWeight
         }
@@ -408,10 +394,8 @@ enum Sub2APIPoolAggregator {
 
     private struct EffectiveAccountValue {
         let fiveHourRemaining: Double
-        let fiveHourResetAt: Date?
         let sevenDayRemaining: Double
-        let sevenDayResetAt: Date?
-        let rateLimitResetAt: Date?
+        let recoveryAt: Date?
         let isWindowLimited: Bool
         let isAvailable: Bool
         let capacityWeight: Double
@@ -426,6 +410,24 @@ private extension Sub2APIAccountSnapshot {
 
     func hasActiveRateLimit(at date: Date) -> Bool {
         rateLimitResetAt.map { $0 > date } ?? false
+    }
+
+    func estimatedRecoveryAt(after date: Date) -> Date? {
+        var blockers: [Date] = []
+
+        if fiveHourUsedPercent.map({ $0 >= 100 }) == true {
+            guard let fiveHourResetAt, fiveHourResetAt > date else { return nil }
+            blockers.append(fiveHourResetAt)
+        }
+        if sevenDayUsedPercent.map({ $0 >= 100 }) == true {
+            guard let sevenDayResetAt, sevenDayResetAt > date else { return nil }
+            blockers.append(sevenDayResetAt)
+        }
+        if let rateLimitResetAt, rateLimitResetAt > date {
+            blockers.append(rateLimitResetAt)
+        }
+
+        return blockers.max()
     }
 
     func isTemporarilyUnavailable(at date: Date) -> Bool {

@@ -183,6 +183,95 @@ final class Sub2APIStartupTests: XCTestCase {
         XCTAssertEqual(state.sub2APIStatus, .connected)
         XCTAssertNotNil(state.sub2APIPoolSnapshot)
     }
+
+    func testCrossingNextRecoveryAutomaticallyForcesFreshUsageProbe() async throws {
+        let client = RecoveryTimingSub2APIClient(
+            recoveryAt: Date().addingTimeInterval(0.15)
+        )
+        let state = try makeRecoveryState(client: client)
+
+        state.startMonitoring()
+        defer { state.stopMonitoring() }
+
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while await client.usageRefreshCount < 2, clock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        let usageRefreshCountAfterRecovery = await client.usageRefreshCount
+        XCTAssertEqual(usageRefreshCountAfterRecovery, 2)
+        XCTAssertEqual(state.sub2APIPoolSnapshot?.effectiveCapacity.availableAccounts, 1)
+        try await Task.sleep(for: .milliseconds(80))
+        let finalUsageRefreshCount = await client.usageRefreshCount
+        XCTAssertEqual(finalUsageRefreshCount, 2)
+    }
+
+    func testRecoveryRefreshRetriesAfterTransientFailure() async throws {
+        let client = RecoveryTimingSub2APIClient(
+            recoveryAt: Date().addingTimeInterval(0.15),
+            failedRefreshCounts: [2]
+        )
+        let state = try makeRecoveryState(client: client)
+
+        state.startMonitoring()
+        defer { state.stopMonitoring() }
+
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while clock.now < deadline {
+            let usageRefreshCount = await client.usageRefreshCount
+            if usageRefreshCount >= 3,
+               state.sub2APIStatus == .connected,
+               state.sub2APIPoolSnapshot?.effectiveCapacity.availableAccounts == 1 {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        let usageRefreshCount = await client.usageRefreshCount
+        XCTAssertEqual(usageRefreshCount, 3)
+        XCTAssertEqual(state.sub2APIPoolSnapshot?.effectiveCapacity.availableAccounts, 1)
+        XCTAssertEqual(state.sub2APIStatus, .connected)
+    }
+
+    private func makeRecoveryState(
+        client: any Sub2APIClientServing
+    ) throws -> AppState {
+        let database = try VibeTokenDatabase.inMemory()
+        let connection = Sub2APIConnection(
+            baseURL: try XCTUnwrap(URL(string: "https://relay.example.com/api/v1")),
+            email: "admin@example.com"
+        )
+        let poolMonitor = Sub2APIPoolMonitor(
+            client: client,
+            sessionStore: CountingSessionStore(
+                session: Sub2APISession(accessToken: "test", refreshToken: nil, expiresAt: nil)
+            ),
+            connectionStore: CountingConnectionStore(connection: connection),
+            capacityConfigurationStore: MemoryCapacityConfigurationStore(),
+            pageSize: 100,
+            maximumPages: 100,
+            staleAfter: 15 * 60,
+            minimumRefreshInterval: 0,
+            usageRefreshInterval: 30 * 60,
+            usageReadbackAttempts: 3,
+            usageReadbackDelay: .milliseconds(1)
+        )
+        let repository = UsageRepository(database: database)
+        return AppState(
+            ingestionCoordinator: UsageIngestionCoordinator(
+                sources: [],
+                repository: repository,
+                maximumWatchFiles: 64
+            ),
+            sub2APIPoolMonitor: poolMonitor,
+            refreshInterval: .seconds(30),
+            sub2APIRefreshInterval: .milliseconds(20),
+            fileEventDebounceMilliseconds: 100,
+            costEstimator: CostEstimator(catalog: .officialAPI)
+        )
+    }
 }
 
 private final class MemoryCapacityConfigurationStore: Sub2APICapacityConfigurationStoring, @unchecked Sendable {
@@ -260,6 +349,48 @@ private actor DelayedUsageSub2APIClient: Sub2APIClientServing {
     func refreshAccountUsage(baseURL: URL, accountIDs: [Int64]) async throws {
         usageRefreshCount += 1
         try await Task.sleep(for: .milliseconds(40))
+    }
+}
+
+private actor RecoveryTimingSub2APIClient: Sub2APIClientServing {
+    private let recoveryAt: Date
+    private let failedRefreshCounts: Set<Int>
+    private(set) var usageRefreshCount = 0
+
+    init(recoveryAt: Date, failedRefreshCounts: Set<Int> = []) {
+        self.recoveryAt = recoveryAt
+        self.failedRefreshCounts = failedRefreshCounts
+    }
+
+    func login(baseURL: URL, email: String, password: String) async throws -> Sub2APILoginResult {
+        throw Sub2APIError.serverUnavailable
+    }
+
+    func completeTwoFactor(baseURL: URL, tempToken: String, code: String) async throws -> Sub2APISession {
+        throw Sub2APIError.serverUnavailable
+    }
+
+    func fetchAccounts(
+        baseURL: URL,
+        pageSize: Int,
+        maximumPages: Int
+    ) async throws -> [Sub2APIAccountPayload] {
+        let usageUpdatedAt = Date().addingTimeInterval(TimeInterval(usageRefreshCount))
+        let body = #"{"id":1,"status":"active","schedulable":true,"parent_account_id":null,"credentials":{"plan_type":"plus"},"extra":{"codex_5h_used_percent":\#(usageRefreshCount >= 2 ? 0 : 100),"codex_5h_reset_at":"\#(timestamp(recoveryAt))","codex_7d_used_percent":20,"codex_usage_updated_at":"\#(timestamp(usageUpdatedAt))"}}"#
+        return [try JSONDecoder().decode(Sub2APIAccountPayload.self, from: Data(body.utf8))]
+    }
+
+    func refreshAccountUsage(baseURL: URL, accountIDs: [Int64]) async throws {
+        usageRefreshCount += 1
+        if failedRefreshCounts.contains(usageRefreshCount) {
+            throw Sub2APIError.serverUnavailable
+        }
+    }
+
+    private func timestamp(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
     }
 }
 
