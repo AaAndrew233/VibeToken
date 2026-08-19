@@ -9,7 +9,7 @@ Never commit real session logs, service URLs, email addresses, passwords, tokens
 Requirements: macOS 14+ and Xcode 16 or Swift 6 command-line tools.
 
 ```bash
-git clone https://github.com/giraffegzy-bot/VibeToken.git
+git clone https://github.com/AaAndrew233/VibeToken.git
 cd VibeToken
 swift test
 swift run VibeToken

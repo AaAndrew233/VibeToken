@@ -25,7 +25,7 @@
 VibeToken is built for developers who use AI coding tools throughout the day and want one quick, honest view of local usage without opening multiple dashboards.
 
 > [!NOTE]
-> This is an early preview. Twenty-two AI coding sources are supported now. The app is not yet distributed as an Apple-notarized package.
+> This is an early preview with twenty-two supported AI coding sources. Downloadable builds are available from GitHub Releases, but they are not yet Apple-notarized.
 
 ## Preview
 
@@ -75,10 +75,20 @@ VibeToken does not infer exact token usage from ChatGPT or Claude desktop conver
 
 ## Install
 
-Requirements: macOS 14+ and Xcode 16 or Swift 6 command-line tools. On launch, VibeToken automatically discovers every supported source. There is no source setup, folder picker, or manual scan step. Missing tools are skipped without blocking the sources that are available.
+The current GitHub Release build requires macOS 14+ on Apple silicon. On launch, VibeToken automatically discovers every supported source. There is no source setup, folder picker, or manual scan step. Missing tools are skipped without blocking the sources that are available.
+
+### Install from GitHub Releases
+
+1. Open the [latest release](https://github.com/AaAndrew233/VibeToken/releases/latest), then download the `macos-arm64` `VibeToken` archive and the checksum file.
+2. Extract the archive and move `VibeToken.app` to Applications.
+3. On first launch, Control-click the app in Finder and choose Open. This preview uses an ad-hoc signature and is not Apple-notarized, so macOS may show a security warning. Download builds only from this repository's Releases page.
+
+### Build from source
+
+Building from source also requires Xcode 16 or Swift 6 command-line tools:
 
 ```bash
-git clone https://github.com/giraffegzy-bot/VibeToken.git
+git clone https://github.com/AaAndrew233/VibeToken.git
 cd VibeToken
 swift test
 ./scripts/build-app.sh
@@ -87,10 +97,10 @@ open "dist/VibeToken.app"
 
 The build script creates an ad-hoc signed app at `dist/VibeToken.app`. It is suitable for local use, but it is not equivalent to a Developer ID signed and notarized release.
 
-### Sharing
+### Release status
 
-- For source distribution, share the GitHub repository. Do not archive the entire development folder: `.git`, `.build`, `dist`, local notes, and editor files are not part of the source release.
-- For a temporary binary handoff, compress only `dist/VibeToken.app`. Because the current build is ad-hoc signed and not notarized, another Mac may show a Gatekeeper warning.
+- For end-user distribution, use the versioned archive and checksum published on GitHub Releases. Do not share the entire development folder.
+- The current archive is ad-hoc signed and not notarized, so another Mac may show a Gatekeeper warning.
 - A public end-user release should use Developer ID signing, Apple notarization, and a versioned archive or DMG.
 
 ## Usage

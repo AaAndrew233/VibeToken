@@ -25,7 +25,7 @@
 VibeToken 面向高频使用 AI 编程工具的开发者，在一个菜单栏弹框中快速查看真实本地用量，不必反复打开多个后台页面。
 
 > [!NOTE]
-> 当前为早期预览版，已支持 22 个 AI 编程数据源，暂未提供经过 Apple 公证的公开安装包。
+> 当前为早期预览版，已支持 22 个 AI 编程数据源。GitHub Releases 提供可下载安装包，但安装包尚未经过 Apple 公证。
 
 ## 界面预览
 
@@ -75,10 +75,20 @@ VibeToken 不会从 ChatGPT 或 Claude 桌面客户端的对话界面推断精�
 
 ## 安装
 
-要求：macOS 14+、Xcode 16 或 Swift 6 命令行工具。VibeToken 启动后会自动发现所有已支持数据源，不需要配置数据源、选择目录或手动扫描。某个工具不存在时会自动跳过，不影响其他可用来源。
+当前 GitHub Release 安装包要求使用 Apple 芯片且运行 macOS 14+。VibeToken 启动后会自动发现所有已支持数据源，不需要配置数据源、选择目录或手动扫描。某个工具不存在时会自动跳过，不影响其他可用来源。
+
+### 从 GitHub Releases 安装
+
+1. 打开[最新版本](https://github.com/AaAndrew233/VibeToken/releases/latest)，下载 `macos-arm64` 的 `VibeToken` 压缩包和校验文件。
+2. 解压后，将 `VibeToken.app` 移到“应用程序”文件夹。
+3. 首次启动时，在 Finder 中右键点击应用并选择“打开”。当前预览版使用 ad-hoc 签名且未经过 Apple 公证，macOS 可能显示安全提示。请只从本仓库的 Releases 页面下载安装包。
+
+### 从源码构建
+
+从源码构建还需要 Xcode 16 或 Swift 6 命令行工具：
 
 ```bash
-git clone https://github.com/giraffegzy-bot/VibeToken.git
+git clone https://github.com/AaAndrew233/VibeToken.git
 cd VibeToken
 swift test
 ./scripts/build-app.sh
@@ -87,10 +97,10 @@ open "dist/VibeToken.app"
 
 构建脚本会在 `dist/VibeToken.app` 生成 ad-hoc 签名应用，适合本机使用，但不等同于经过 Developer ID 签名和 Apple 公证的正式安装包。
 
-### 分享方式
+### 发布说明
 
-- 分享源码时，使用 GitHub 仓库，不要直接压缩整个开发目录；`.git`、`.build`、`dist`、本地说明和编辑器文件都不属于源码发布内容。
-- 临时分享可运行程序时，只压缩 `dist/VibeToken.app`。当前版本使用 ad-hoc 签名且未经过 Apple 公证，其他 Mac 可能显示 Gatekeeper 安全提示。
+- 面向用户分享时，使用 GitHub Releases 中的版本化安装包和校验文件，不要直接分享整个开发目录。
+- 当前安装包使用 ad-hoc 签名且未经过 Apple 公证，其他 Mac 可能显示 Gatekeeper 安全提示。
 - 面向普通用户正式发布时，应使用 Developer ID 签名、Apple 公证和带版本号的压缩包或 DMG。
 
 ## 使用
