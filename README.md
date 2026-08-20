@@ -25,7 +25,7 @@
 VibeToken is built for developers who use AI coding tools throughout the day and want one quick, honest view of local usage without opening multiple dashboards.
 
 > [!NOTE]
-> This is an early preview with twenty-two supported AI coding sources. Downloadable builds are available from GitHub Releases, but they are not yet Apple-notarized.
+> This is an early preview with twenty-two supported AI coding sources. The current release is [v0.1.1 Preview](https://github.com/AaAndrew233/VibeToken/releases/tag/v0.1.1). Downloadable builds are available from GitHub Releases, but they are not yet Apple-notarized.
 
 ## Preview
 
@@ -99,6 +99,7 @@ The build script creates an ad-hoc signed app at `dist/VibeToken.app`. It is sui
 
 ### Release status
 
+- Current release: [v0.1.1 Preview](https://github.com/AaAndrew233/VibeToken/releases/tag/v0.1.1).
 - For end-user distribution, use the versioned archive and checksum published on GitHub Releases. Do not share the entire development folder.
 - The current archive is ad-hoc signed and not notarized, so another Mac may show a Gatekeeper warning.
 - A public end-user release should use Developer ID signing, Apple notarization, and a versioned archive or DMG.

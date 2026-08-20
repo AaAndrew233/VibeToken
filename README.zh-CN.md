@@ -25,7 +25,7 @@
 VibeToken 面向高频使用 AI 编程工具的开发者，在一个菜单栏弹框中快速查看真实本地用量，不必反复打开多个后台页面。
 
 > [!NOTE]
-> 当前为早期预览版，已支持 22 个 AI 编程数据源。GitHub Releases 提供可下载安装包，但安装包尚未经过 Apple 公证。
+> 当前为早期预览版，已支持 22 个 AI 编程数据源。当前版本是 [v0.1.1 Preview](https://github.com/AaAndrew233/VibeToken/releases/tag/v0.1.1)。GitHub Releases 提供可下载安装包，但安装包尚未经过 Apple 公证。
 
 ## 界面预览
 
@@ -99,6 +99,7 @@ open "dist/VibeToken.app"
 
 ### 发布说明
 
+- 当前版本：[v0.1.1 Preview](https://github.com/AaAndrew233/VibeToken/releases/tag/v0.1.1)。
 - 面向用户分享时，使用 GitHub Releases 中的版本化安装包和校验文件，不要直接分享整个开发目录。
 - 当前安装包使用 ad-hoc 签名且未经过 Apple 公证，其他 Mac 可能显示 Gatekeeper 安全提示。
 - 面向普通用户正式发布时，应使用 Developer ID 签名、Apple 公证和带版本号的压缩包或 DMG。
