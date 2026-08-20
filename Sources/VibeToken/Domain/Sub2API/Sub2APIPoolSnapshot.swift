@@ -171,16 +171,11 @@ enum Sub2APIPoolAggregator {
         let unconfiguredCapacityAccounts = activeAccounts.filter {
             $0.capacityTier == nil
         }.count
+        let windowLimitedIDs = Set(
+            activeAccounts.filter { $0.isWindowLimited(at: fetchedAt) }.map(\.id)
+        )
         let runtimeRateLimitedIDs = Set(
             activeAccounts.filter { $0.hasActiveRateLimit(at: fetchedAt) }.map(\.id)
-        )
-        let windowLimitedIDs = Set(
-            activeAccounts.filter { account in
-                if runtimeRateLimitedIDs.contains(account.id) { return true }
-                return account.schedulable
-                    && !account.isTemporarilyUnavailable(at: fetchedAt)
-                    && account.hasExhaustedWindow
-            }.map(\.id)
         )
         let operational = activeAccounts.filter { account in
             if runtimeRateLimitedIDs.contains(account.id) { return true }
@@ -249,7 +244,8 @@ enum Sub2APIPoolAggregator {
                 activeAccounts,
                 zeroContributionIDs: zeroContributionIDs,
                 windowLimitedIDs: windowLimitedIDs,
-                fetchedAt: fetchedAt
+                fetchedAt: fetchedAt,
+                staleAfter: staleAfter
             ),
             fiveHour: summarize(
                 activeAccounts,
@@ -272,13 +268,17 @@ enum Sub2APIPoolAggregator {
         _ accounts: [Sub2APIAccountSnapshot],
         zeroContributionIDs: Set<Int64>,
         windowLimitedIDs: Set<Int64>,
-        fetchedAt: Date
+        fetchedAt: Date,
+        staleAfter: TimeInterval
     ) -> Sub2APIEffectiveCapacitySnapshot {
         let values = accounts.compactMap { account -> EffectiveAccountValue? in
             let isUnavailable = zeroContributionIDs.contains(account.id)
             let isWindowLimited = windowLimitedIDs.contains(account.id)
             let recoveryAt = isWindowLimited
-                ? account.estimatedRecoveryAt(after: fetchedAt)
+                ? account.reliableEstimatedRecoveryAt(
+                    after: fetchedAt,
+                    staleAfter: staleAfter
+                )
                 : nil
             guard let fiveHourUsed = account.fiveHourUsedPercent,
                   let sevenDayUsed = account.sevenDayUsedPercent else {
@@ -402,7 +402,7 @@ enum Sub2APIPoolAggregator {
     }
 }
 
-private extension Sub2APIAccountSnapshot {
+extension Sub2APIAccountSnapshot {
     var hasExhaustedWindow: Bool {
         (fiveHourUsedPercent.map { $0 >= 100 } ?? false)
             || (sevenDayUsedPercent.map { $0 >= 100 } ?? false)
@@ -410,6 +410,14 @@ private extension Sub2APIAccountSnapshot {
 
     func hasActiveRateLimit(at date: Date) -> Bool {
         rateLimitResetAt.map { $0 > date } ?? false
+    }
+
+    func isWindowLimited(at date: Date) -> Bool {
+        guard status.caseInsensitiveCompare("active") == .orderedSame else { return false }
+        if hasActiveRateLimit(at: date) { return true }
+        return schedulable
+            && !isTemporarilyUnavailable(at: date)
+            && hasExhaustedWindow
     }
 
     func estimatedRecoveryAt(after date: Date) -> Date? {
@@ -430,8 +438,33 @@ private extension Sub2APIAccountSnapshot {
         return blockers.max()
     }
 
+    func reliableEstimatedRecoveryAt(
+        after date: Date,
+        staleAfter: TimeInterval
+    ) -> Date? {
+        guard isWindowLimited(at: date) else { return nil }
+        let quotaStatus = Sub2APIAccountQuotaStatus(
+            fiveHourUsedPercent: fiveHourUsedPercent,
+            sevenDayUsedPercent: sevenDayUsedPercent,
+            usageUpdatedAt: usageUpdatedAt,
+            observedAt: date,
+            staleAfter: staleAfter,
+            explicitlyLimited: hasExplicitZeroCapacityState(at: date)
+        )
+        guard case .current = quotaStatus else { return nil }
+        return estimatedRecoveryAt(after: date)
+    }
+
     func isTemporarilyUnavailable(at date: Date) -> Bool {
         (overloadUntil.map { $0 > date } ?? false)
             || (tempUnschedulableUntil.map { $0 > date } ?? false)
+    }
+
+    func hasExplicitZeroCapacityState(at date: Date) -> Bool {
+        (rateLimitResetAt.map { $0 > date } ?? false)
+            || (overloadUntil.map { $0 > date } ?? false)
+            || (tempUnschedulableUntil.map { $0 > date } ?? false)
+            || (fiveHourUsedPercent.map { $0 == 100 } ?? false)
+            || (sevenDayUsedPercent.map { $0 == 100 } ?? false)
     }
 }

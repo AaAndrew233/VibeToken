@@ -481,12 +481,13 @@ final class AppState {
             ],
             fetchedAt: now
         )
-        sub2APIAccountCapacityOptions = (1...11).map { id in
+        let fixtureOptions = (1...11).map { id in
             let isPro = id <= 4
             let displayName = id == 1 ? "研发主账号（超长名称布局验收）" : nil
             let runtimeStatus: Sub2APIAccountRuntimeStatus = switch id {
             case 1: .rateLimited
             case 2: .unavailable
+            case 4: .rateLimited
             default: .available
             }
             let quotaStatus: Sub2APIAccountQuotaStatus
@@ -511,15 +512,23 @@ final class AppState {
                     sevenDayRemainingPercent: id == 5 ? 79 : 0
                 )
             }
+            let nextRecoveryAt: Date?
+            switch id {
+            case 1: nextRecoveryAt = now.addingTimeInterval(2 * 24 * 60 * 60)
+            case 4: nextRecoveryAt = now.addingTimeInterval(3 * 24 * 60 * 60)
+            default: nextRecoveryAt = nil
+            }
             return Sub2APIAccountCapacityOption(
                 accountID: Int64(id),
                 displayName: displayName,
                 detectedPlan: isPro ? "Pro" : "Plus",
                 selectedTier: isPro ? .pro20 : .plus,
                 runtimeStatus: runtimeStatus,
-                quotaStatus: quotaStatus
+                quotaStatus: quotaStatus,
+                nextRecoveryAt: nextRecoveryAt
             )
         }
+        sub2APIAccountCapacityOptions = Sub2APIAccountCapacityOption.sorted(fixtureOptions)
         sub2APIStatus = .connected
     }
 

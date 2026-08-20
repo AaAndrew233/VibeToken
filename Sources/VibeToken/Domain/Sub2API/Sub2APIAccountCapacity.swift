@@ -67,8 +67,44 @@ struct Sub2APIAccountCapacityOption: Identifiable, Equatable, Sendable {
     let selectedTier: Sub2APICapacityTier?
     let runtimeStatus: Sub2APIAccountRuntimeStatus
     let quotaStatus: Sub2APIAccountQuotaStatus
+    let nextRecoveryAt: Date?
 
     var id: Int64 { accountID }
+
+    var displayedRecoveryAt: Date? {
+        runtimeStatus == .rateLimited ? nextRecoveryAt : nil
+    }
+
+    var isInvalidForSorting: Bool {
+        if runtimeStatus == .unavailable { return true }
+        if case .current = quotaStatus { return false }
+        return true
+    }
+
+    static func sorted(_ options: [Self]) -> [Self] {
+        options.enumerated()
+            .sorted { lhs, rhs in
+                if lhs.element.isInvalidForSorting != rhs.element.isInvalidForSorting {
+                    return !lhs.element.isInvalidForSorting
+                }
+
+                let lhsIsPro = lhs.element.detectedPlan.caseInsensitiveCompare("Pro") == .orderedSame
+                let rhsIsPro = rhs.element.detectedPlan.caseInsensitiveCompare("Pro") == .orderedSame
+                if lhsIsPro != rhsIsPro { return lhsIsPro }
+
+                switch (lhs.element.nextRecoveryAt, rhs.element.nextRecoveryAt) {
+                case let (left?, right?) where left != right:
+                    return left < right
+                case (_?, nil):
+                    return true
+                case (nil, _?):
+                    return false
+                default:
+                    return lhs.offset < rhs.offset
+                }
+            }
+            .map(\.element)
+    }
 }
 
 enum Sub2APIAccountRuntimeStatus: Equatable, Sendable {

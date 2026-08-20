@@ -163,13 +163,21 @@ actor Sub2APIPoolMonitor {
         let payloads = physicalAccountPayloads()
         let prioritizedPayloads = payloads.filter(\.requiresManualCapacityTier)
             + payloads.filter { !$0.requiresManualCapacityTier }
-        return prioritizedPayloads.map { payload in
+        let options = prioritizedPayloads.map { payload in
             let selectedTier = payload.resolvedCapacityTier(
                 configuredTier: tiers[payload.id]
             )
             let snapshot = payload.snapshot(
                 now: observedAt,
                 capacityTier: selectedTier
+            )
+            let quotaStatus = Sub2APIAccountQuotaStatus(
+                fiveHourUsedPercent: snapshot.fiveHourUsedPercent,
+                sevenDayUsedPercent: snapshot.sevenDayUsedPercent,
+                usageUpdatedAt: snapshot.usageUpdatedAt,
+                observedAt: observedAt,
+                staleAfter: staleAfter,
+                explicitlyLimited: snapshot.hasExplicitZeroCapacityState(at: observedAt)
             )
             return Sub2APIAccountCapacityOption(
                 accountID: payload.id,
@@ -184,16 +192,14 @@ actor Sub2APIPoolMonitor {
                     tempUnschedulableUntil: snapshot.tempUnschedulableUntil,
                     observedAt: observedAt
                 ),
-                quotaStatus: Sub2APIAccountQuotaStatus(
-                    fiveHourUsedPercent: snapshot.fiveHourUsedPercent,
-                    sevenDayUsedPercent: snapshot.sevenDayUsedPercent,
-                    usageUpdatedAt: snapshot.usageUpdatedAt,
-                    observedAt: observedAt,
-                    staleAfter: staleAfter,
-                    explicitlyLimited: snapshot.hasExplicitZeroCapacityState(at: observedAt)
+                quotaStatus: quotaStatus,
+                nextRecoveryAt: snapshot.reliableEstimatedRecoveryAt(
+                    after: observedAt,
+                    staleAfter: staleAfter
                 )
             )
         }
+        return Sub2APIAccountCapacityOption.sorted(options)
     }
 
     func saveCapacitySelections(
@@ -417,14 +423,4 @@ private enum UsageReadbackResult {
     case verified([Sub2APIAccountPayload])
     case accountSetChanged([Sub2APIAccountPayload])
     case incomplete(refreshed: Int, total: Int)
-}
-
-private extension Sub2APIAccountSnapshot {
-    func hasExplicitZeroCapacityState(at date: Date) -> Bool {
-        (rateLimitResetAt.map { $0 > date } ?? false)
-            || (overloadUntil.map { $0 > date } ?? false)
-            || (tempUnschedulableUntil.map { $0 > date } ?? false)
-            || (fiveHourUsedPercent.map { $0 == 100 } ?? false)
-            || (sevenDayUsedPercent.map { $0 == 100 } ?? false)
-    }
 }

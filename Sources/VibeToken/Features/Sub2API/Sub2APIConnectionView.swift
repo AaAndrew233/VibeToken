@@ -300,7 +300,10 @@ struct Sub2APIConnectionView: View {
                     )
                     .frame(width: TableLayout.planWidth, alignment: .leading)
 
-                accountQuotaView(option.quotaStatus)
+                accountQuotaView(
+                    option.quotaStatus,
+                    nextRecoveryAt: option.displayedRecoveryAt
+                )
                     .frame(width: TableLayout.quotaWidth, alignment: .leading)
 
                 if isDetectedPro(option) {
@@ -329,7 +332,7 @@ struct Sub2APIConnectionView: View {
             .frame(width: TableLayout.trailingWidth, alignment: .leading)
         }
         .padding(.horizontal, 12)
-        .frame(minHeight: 50)
+        .frame(minHeight: option.displayedRecoveryAt == nil ? 50 : 62)
         .background(
             isUnconfiguredPro(option)
                 ? Color.orange.opacity(0.055)
@@ -360,17 +363,30 @@ struct Sub2APIConnectionView: View {
     }
 
     @ViewBuilder
-    private func accountQuotaView(_ status: Sub2APIAccountQuotaStatus) -> some View {
+    private func accountQuotaView(
+        _ status: Sub2APIAccountQuotaStatus,
+        nextRecoveryAt: Date?
+    ) -> some View {
         switch status {
         case .current(let fiveHourRemainingPercent, let sevenDayRemainingPercent):
             VStack(alignment: .leading, spacing: 2) {
-                quotaLine(label: "5h", remainingPercent: fiveHourRemainingPercent)
-                quotaLine(label: "7d", remainingPercent: sevenDayRemainingPercent)
+                HStack(spacing: 5) {
+                    quotaInline(label: "5h", remainingPercent: fiveHourRemainingPercent)
+                    quotaInline(label: "7d", remainingPercent: sevenDayRemainingPercent)
+                }
+                if let nextRecoveryAt {
+                    Text("\(state.text(.nextRecovery)) \(accountRecoveryText(nextRecoveryAt))")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .accessibilityElement(children: .combine)
             .help(
                 "\(state.text(.fiveHourWindow)) \(quotaText(fiveHourRemainingPercent)), "
                     + "\(state.text(.sevenDayWindow)) \(quotaText(sevenDayRemainingPercent))"
+                    + recoveryHelp(nextRecoveryAt)
             )
         case .stale:
             Text(state.text(.staleData))
@@ -383,17 +399,17 @@ struct Sub2APIConnectionView: View {
         }
     }
 
-    private func quotaLine(label: String, remainingPercent: Double) -> some View {
-        HStack(spacing: 4) {
+    private func quotaInline(label: String, remainingPercent: Double) -> some View {
+        HStack(spacing: 3) {
             Text(label)
                 .font(.system(size: 9, weight: .medium, design: .rounded))
                 .foregroundStyle(.tertiary)
-                .frame(width: 18, alignment: .leading)
             Text(quotaText(remainingPercent))
                 .font(.system(size: 10, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(quotaColor(remainingPercent))
         }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private func quotaText(_ remainingPercent: Double) -> String {
@@ -408,6 +424,22 @@ struct Sub2APIConnectionView: View {
         if remainingPercent <= 0 { return .red }
         if remainingPercent <= 20 { return .orange }
         return .primary
+    }
+
+    private func accountRecoveryText(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = state.language == .simplifiedChinese
+            ? Locale(identifier: "zh_Hans_CN")
+            : Locale(identifier: "en_US")
+        formatter.dateFormat = state.language == .simplifiedChinese
+            ? "M/d HH:mm"
+            : "MMM d, HH:mm"
+        return formatter.string(from: date)
+    }
+
+    private func recoveryHelp(_ date: Date?) -> String {
+        guard let date else { return "" }
+        return ", \(state.text(.nextRecovery)) \(accountRecoveryText(date))"
     }
 
     private func capacitySelectionBinding(

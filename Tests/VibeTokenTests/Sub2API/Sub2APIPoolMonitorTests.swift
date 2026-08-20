@@ -37,6 +37,163 @@ final class Sub2APIPoolMonitorTests: XCTestCase {
         XCTAssertEqual(options.map(\.detectedPlan), ["Pro", "Pro", "Plus", "Plus"])
     }
 
+    func testCapacityOptionsExposeOnlyReliableAccountRecoveryTimes() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VibeTokenRecoveryTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let baseURL = try XCTUnwrap(URL(string: "https://relay.example.com/api/v1"))
+        let sessionStore = FileSub2APISessionStore(supportDirectory: directory)
+        let connectionStore = FileSub2APIConnectionStore(supportDirectory: directory)
+        let capacityStore = FileSub2APICapacityConfigurationStore(supportDirectory: directory)
+        try sessionStore.save(Sub2APISession(accessToken: "test", refreshToken: nil, expiresAt: nil))
+        try connectionStore.save(Sub2APIConnection(baseURL: baseURL, email: "admin@example.com"))
+
+        let now = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970))
+        let freshTimestamp = ISO8601DateFormatter().string(from: now)
+        let staleTimestamp = ISO8601DateFormatter().string(from: now.addingTimeInterval(-3_600))
+        let fiveHourReset = now.addingTimeInterval(10 * 60)
+        let rateLimitReset = now.addingTimeInterval(15 * 60)
+        let sevenDayReset = now.addingTimeInterval(20 * 60)
+        let payloads = try [
+            decodeRecoveryAccount(
+                id: 1,
+                fiveHourUsedPercent: 100,
+                fiveHourResetAt: fiveHourReset,
+                sevenDayUsedPercent: 100,
+                sevenDayResetAt: sevenDayReset,
+                usageUpdatedAt: freshTimestamp
+            ),
+            decodeRecoveryAccount(
+                id: 2,
+                fiveHourUsedPercent: 25,
+                sevenDayUsedPercent: 50,
+                usageUpdatedAt: freshTimestamp,
+                rateLimitResetAt: rateLimitReset
+            ),
+            decodeRecoveryAccount(
+                id: 3,
+                fiveHourUsedPercent: 100,
+                sevenDayUsedPercent: 20,
+                usageUpdatedAt: freshTimestamp
+            ),
+            decodeRecoveryAccount(
+                id: 4,
+                fiveHourUsedPercent: 25,
+                sevenDayUsedPercent: 50,
+                usageUpdatedAt: freshTimestamp
+            ),
+            decodeRecoveryAccount(
+                id: 5,
+                fiveHourUsedPercent: 100,
+                fiveHourResetAt: fiveHourReset,
+                sevenDayUsedPercent: 20,
+                usageUpdatedAt: staleTimestamp
+            ),
+            decodeRecoveryAccount(
+                id: 6,
+                status: "error",
+                fiveHourUsedPercent: 100,
+                fiveHourResetAt: fiveHourReset,
+                sevenDayUsedPercent: 20,
+                usageUpdatedAt: freshTimestamp
+            )
+        ]
+        let monitor = makeMonitor(
+            client: FixedAccountsClient(accounts: payloads),
+            sessionStore: sessionStore,
+            connectionStore: connectionStore,
+            capacityStore: capacityStore
+        )
+
+        let snapshot = try await monitor.refresh(force: true)
+        let options = try await monitor.capacityOptions()
+        let optionsByID = Dictionary(uniqueKeysWithValues: options.map { ($0.accountID, $0) })
+
+        XCTAssertEqual(optionsByID[1]?.nextRecoveryAt, sevenDayReset)
+        XCTAssertNil(optionsByID[1]?.displayedRecoveryAt)
+        XCTAssertEqual(optionsByID[2]?.nextRecoveryAt, rateLimitReset)
+        XCTAssertEqual(optionsByID[2]?.displayedRecoveryAt, rateLimitReset)
+        XCTAssertNil(optionsByID[3]?.nextRecoveryAt)
+        XCTAssertNil(optionsByID[3]?.displayedRecoveryAt)
+        XCTAssertNil(optionsByID[4]?.nextRecoveryAt)
+        XCTAssertNil(optionsByID[4]?.displayedRecoveryAt)
+        XCTAssertEqual(optionsByID[5]?.quotaStatus, .stale)
+        XCTAssertNil(optionsByID[5]?.nextRecoveryAt)
+        XCTAssertNil(optionsByID[5]?.displayedRecoveryAt)
+        XCTAssertEqual(optionsByID[6]?.runtimeStatus, .unavailable)
+        XCTAssertNil(optionsByID[6]?.nextRecoveryAt)
+        XCTAssertNil(optionsByID[6]?.displayedRecoveryAt)
+        XCTAssertEqual(
+            snapshot?.effectiveCapacity.nextRecoveryAt,
+            options.compactMap(\.nextRecoveryAt).min()
+        )
+    }
+
+    func testCapacityOptionsSortValidProRecoveryPlusAndInvalidAccounts() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VibeTokenCapacitySortTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let baseURL = try XCTUnwrap(URL(string: "https://relay.example.com/api/v1"))
+        let sessionStore = FileSub2APISessionStore(supportDirectory: directory)
+        let connectionStore = FileSub2APIConnectionStore(supportDirectory: directory)
+        let capacityStore = FileSub2APICapacityConfigurationStore(supportDirectory: directory)
+        try sessionStore.save(Sub2APISession(accessToken: "test", refreshToken: nil, expiresAt: nil))
+        try connectionStore.save(Sub2APIConnection(baseURL: baseURL, email: "admin@example.com"))
+
+        let now = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970))
+        let timestamp = ISO8601DateFormatter().string(from: now)
+        let earlyReset = now.addingTimeInterval(10 * 60)
+        let lateReset = now.addingTimeInterval(20 * 60)
+        let payloads = try [
+            decodeRecoveryAccount(
+                id: 1,
+                plan: "plus",
+                fiveHourUsedPercent: 25,
+                sevenDayUsedPercent: 50,
+                usageUpdatedAt: timestamp,
+                rateLimitResetAt: lateReset
+            ),
+            decodeRecoveryAccount(
+                id: 2,
+                plan: "pro",
+                fiveHourUsedPercent: 25,
+                sevenDayUsedPercent: 50,
+                usageUpdatedAt: timestamp,
+                rateLimitResetAt: earlyReset
+            ),
+            decodeRecoveryAccount(
+                id: 3,
+                plan: "pro",
+                fiveHourUsedPercent: 25,
+                sevenDayUsedPercent: 50,
+                usageUpdatedAt: timestamp
+            ),
+            decodeRecoveryAccount(
+                id: 4,
+                plan: "plus",
+                status: "error",
+                fiveHourUsedPercent: 25,
+                sevenDayUsedPercent: 50,
+                usageUpdatedAt: timestamp
+            )
+        ]
+        let monitor = makeMonitor(
+            client: FixedAccountsClient(accounts: payloads),
+            sessionStore: sessionStore,
+            connectionStore: connectionStore,
+            capacityStore: capacityStore
+        )
+
+        _ = try await monitor.refresh(force: true)
+        let options = try await monitor.capacityOptions()
+
+        XCTAssertEqual(options.map(\.accountID), [2, 3, 1, 4])
+        XCTAssertEqual(options.map(\.detectedPlan), ["Pro", "Pro", "Plus", "Plus"])
+        XCTAssertEqual(options.last?.runtimeStatus, .unavailable)
+    }
+
     func testCapacitySelectionsPersistAndShadowAccountsAreNotConfigurable() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("VibeTokenMonitorTests-\(UUID().uuidString)", isDirectory: true)
@@ -542,6 +699,44 @@ final class Sub2APIPoolMonitorTests: XCTestCase {
                 "codex_usage_updated_at": updatedAt
             ]
         ])
+        return try JSONDecoder().decode(Sub2APIAccountPayload.self, from: data)
+    }
+
+    private func decodeRecoveryAccount(
+        id: Int64,
+        plan: String = "plus",
+        status: String = "active",
+        fiveHourUsedPercent: Double,
+        fiveHourResetAt: Date? = nil,
+        sevenDayUsedPercent: Double,
+        sevenDayResetAt: Date? = nil,
+        usageUpdatedAt: String,
+        rateLimitResetAt: Date? = nil
+    ) throws -> Sub2APIAccountPayload {
+        let formatter = ISO8601DateFormatter()
+        var extra: [String: Any] = [
+            "codex_5h_used_percent": fiveHourUsedPercent,
+            "codex_7d_used_percent": sevenDayUsedPercent,
+            "codex_usage_updated_at": usageUpdatedAt
+        ]
+        if let fiveHourResetAt {
+            extra["codex_5h_reset_at"] = formatter.string(from: fiveHourResetAt)
+        }
+        if let sevenDayResetAt {
+            extra["codex_7d_reset_at"] = formatter.string(from: sevenDayResetAt)
+        }
+        var account: [String: Any] = [
+            "id": NSNumber(value: id),
+            "status": status,
+            "schedulable": true,
+            "parent_account_id": NSNull(),
+            "credentials": ["plan_type": plan],
+            "extra": extra
+        ]
+        if let rateLimitResetAt {
+            account["rate_limit_reset_at"] = formatter.string(from: rateLimitResetAt)
+        }
+        let data = try JSONSerialization.data(withJSONObject: account)
         return try JSONDecoder().decode(Sub2APIAccountPayload.self, from: data)
     }
 

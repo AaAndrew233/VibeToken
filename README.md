@@ -40,7 +40,7 @@ VibeToken is built for developers who use AI coding tools throughout the day and
 - Input, cache, output, reasoning, model, tool, and session breakdowns.
 - Versioned OpenAI, Anthropic, and Google API price estimates with pricing coverage shown explicitly.
 - Duplicate emission and fork/subagent replay filtering.
-- Optional read-only Sub2API pool monitoring with per-account remaining quota and explicit rate-limited or unavailable states for Codex 5-hour and 7-day windows.
+- Optional read-only Sub2API pool monitoring with per-account remaining quota, account-specific estimated recovery times, and explicit rate-limited or unavailable states for Codex 5-hour and 7-day windows.
 - Native macOS menu bar and Dock entry points in English and Simplified Chinese; Dock visibility can be set to always show or menu bar only.
 
 ## Support
@@ -132,7 +132,7 @@ Cache writes use the normal input price. The current estimator does not apply pe
 
 Pricing sources: [OpenAI](https://developers.openai.com/api/docs/pricing/), [Anthropic](https://platform.claude.com/docs/en/about-claude/pricing), and [Google Gemini](https://ai.google.dev/gemini-api/docs/pricing).
 
-For Sub2API, physical account counts remain unweighted. The UI shows `available / total` for each plan, for example `Plus 7/8 · Pro 4/4`. Capacity is weighted as `Plus = 1`, `Pro 5x = 5`, `Pro 10x = 10`, and `Pro 20x = 20`, then normalized to `100%`. Each account contributes the smaller remaining value of its 5-hour and 7-day windows. Temporarily unavailable, explicitly rate-limited, exhausted, stale, or unobserved accounts remain in the total capacity denominator but contribute zero currently available capacity. Shadow accounts are excluded.
+For Sub2API, physical account counts remain unweighted. The UI shows `available / total` for each plan, for example `Plus 7/8 · Pro 4/4`. Capacity is weighted as `Plus = 1`, `Pro 5x = 5`, `Pro 10x = 10`, and `Pro 20x = 20`, then normalized to `100%`. Each account contributes the smaller remaining value of its 5-hour and 7-day windows. Temporarily unavailable, explicitly rate-limited, exhausted, stale, or unobserved accounts remain in the total capacity denominator but contribute zero currently available capacity. The account quota sheet places the 5-hour and 7-day values on one line and shows an estimated recovery below them only when the account is marked rate-limited and every active blocker has a valid future reset time. Accounts are sorted with valid Pro accounts first, earlier recovery times first within a plan, valid Plus accounts next, and invalid accounts last. The pool-level estimate is the earliest complete recovery among those accounts. Shadow accounts are excluded.
 
 ## Privacy
 
