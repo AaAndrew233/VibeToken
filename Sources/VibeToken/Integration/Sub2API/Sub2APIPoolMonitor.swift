@@ -184,6 +184,7 @@ actor Sub2APIPoolMonitor {
                 displayName: payload.capacityDisplayName,
                 detectedPlan: payload.detectedPlan,
                 selectedTier: selectedTier,
+                subscriptionExpiresAt: snapshot.subscriptionExpiresAt,
                 runtimeStatus: Sub2APIAccountRuntimeStatus(
                     status: snapshot.status,
                     schedulable: snapshot.schedulable,

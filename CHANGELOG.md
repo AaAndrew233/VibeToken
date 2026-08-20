@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.2] - 2026-08-20
+
+### Added
+
+- Added a dedicated Settings window for Dock icon visibility and launch at login.
+- Added available and unavailable account tabs with counts in the Sub2API capacity view.
+- Added plan expiration display, account-specific recovery times, and explicit rate-limited or unavailable labels.
+
+### Changed
+
+- Restored language, time range, refresh mode, and relay capacity controls to their existing menu and relay locations.
+- Updated English and Simplified Chinese documentation and visual QA records.
+
 ## [0.1.1] - 2026-08-20
 
 ### Added

@@ -146,6 +146,7 @@ struct Sub2APIAccountSnapshot: Equatable, Sendable {
     let parentAccountID: Int64?
     let plan: String
     let capacityTier: Sub2APICapacityTier?
+    let subscriptionExpiresAt: Date?
     let fiveHourUsedPercent: Double?
     let fiveHourResetAt: Date?
     let sevenDayUsedPercent: Double?

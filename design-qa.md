@@ -7,6 +7,15 @@
 - 英文实现截图：`artifacts/design-qa/account-recovery-en.png`
 - 全图并排对比：`artifacts/design-qa/full-comparison.png`
 - 账号额度局部对比：`artifacts/design-qa/quota-comparison.png`
+- 设置窗口中文验收截图：`artifacts/design-qa/settings-window-zh.png`
+
+## 设置窗口验收
+
+- 真源截图：`/var/folders/xz/g1qdqwp14yl0bm566mfs2tvh0000gn/T/codex-clipboard-711e2022-7262-4bbe-97e7-83229bd50188.png`
+- 实现截图：`artifacts/design-qa/settings-window-zh.png`
+- 画布：原生 macOS 设置窗口，420 x 220 pt，仅展示程序坞与启动设置。
+- 结果：程序坞图标模式和开机自动启动均使用真实绑定；语言、时间范围、刷新方式、Sub2API 等入口保留在原有界面。
+- 视觉检查：无 P0、P1、P2 问题；分组标题、分隔线和控件命中区未发生重叠或裁切。
 
 ## Viewport And State
 

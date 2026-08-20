@@ -34,9 +34,20 @@ enum CopyKey: String, Sendable {
     case overview
     case dataSources
     case settings
+    case settingsSync
+    case settingsDisplay
+    case settingsRefresh
+    case settingsDockStartup
+    case settingsRelay
+    case lastSync
+    case notConfigured
+    case reconnect
+    case accountCount
     case dockIcon
     case dockIconAlways
     case dockIconMenuBarOnly
+    case dockAndStartup
+    case launchAtLogin
     case refreshMode
     case eventDriven
     case realTimeRefresh
@@ -94,6 +105,9 @@ enum CopyKey: String, Sendable {
     case account
     case accountRateLimited
     case accountUnavailable
+    case availableAccountTab
+    case unavailableAccountTab
+    case subscriptionExpires
     case saveConfiguration
     case capacityConfigurationHint
     case noAccountsFound
@@ -145,9 +159,20 @@ enum Localizer {
         .overview: "概览",
         .dataSources: "数据源",
         .settings: "设置",
+        .settingsSync: "同步",
+        .settingsDisplay: "显示",
+        .settingsRefresh: "刷新",
+        .settingsDockStartup: "程序坞与启动",
+        .settingsRelay: "中转额度",
+        .lastSync: "上次同步",
+        .notConfigured: "未配置",
+        .reconnect: "重新连接",
+        .accountCount: "账号",
         .dockIcon: "程序坞图标",
         .dockIconAlways: "常驻",
         .dockIconMenuBarOnly: "仅菜单栏",
+        .dockAndStartup: "程序坞与启动",
+        .launchAtLogin: "开机自动启动",
         .refreshMode: "刷新方式",
         .eventDriven: "实时（事件驱动）",
         .realTimeRefresh: "实时",
@@ -205,6 +230,9 @@ enum Localizer {
         .account: "账号",
         .accountRateLimited: "限流",
         .accountUnavailable: "不可用",
+        .availableAccountTab: "可用账号",
+        .unavailableAccountTab: "不可用账号",
+        .subscriptionExpires: "套餐到期",
         .saveConfiguration: "保存配置",
         .capacityConfigurationHint: "额度来自最近一次正式刷新；仅 Pro 账号需要确认额度倍数。",
         .noAccountsFound: "未找到可同步账号",
@@ -246,9 +274,20 @@ enum Localizer {
         .overview: "Overview",
         .dataSources: "Data Sources",
         .settings: "Settings",
+        .settingsSync: "Sync",
+        .settingsDisplay: "Display",
+        .settingsRefresh: "Refresh",
+        .settingsDockStartup: "Dock & Startup",
+        .settingsRelay: "Relay Capacity",
+        .lastSync: "Last Sync",
+        .notConfigured: "Not Configured",
+        .reconnect: "Reconnect",
+        .accountCount: "Accounts",
         .dockIcon: "Dock Icon",
         .dockIconAlways: "Always Show",
         .dockIconMenuBarOnly: "Menu Bar Only",
+        .dockAndStartup: "Dock & Startup",
+        .launchAtLogin: "Launch at Login",
         .refreshMode: "Refresh Mode",
         .eventDriven: "Live (Event-driven)",
         .realTimeRefresh: "Real-time",
@@ -306,6 +345,9 @@ enum Localizer {
         .account: "Account",
         .accountRateLimited: "Rate Limited",
         .accountUnavailable: "Unavailable",
+        .availableAccountTab: "Available Accounts",
+        .unavailableAccountTab: "Unavailable Accounts",
+        .subscriptionExpires: "Plan expires",
         .saveConfiguration: "Save Configuration",
         .capacityConfigurationHint: "Quotas come from the latest verified refresh. Only Pro accounts need a confirmed multiplier.",
         .noAccountsFound: "No syncable accounts found",

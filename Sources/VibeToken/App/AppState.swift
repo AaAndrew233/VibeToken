@@ -25,6 +25,7 @@ final class AppState {
     private(set) var selectedTimeRange: UsageTimeRange
     private(set) var isRefreshing = false
     private(set) var lastRefreshAt: Date?
+    private(set) var launchAtLogin: Bool
     var sourceStatus: SourceStatus = .loading
     var dockIconMode: DockIconMode {
         didSet {
@@ -95,6 +96,7 @@ final class AppState {
         selectedTimeRange = UserDefaults.standard.string(forKey: Self.timeRangeKey)
             .flatMap(UsageTimeRange.init(rawValue:)) ?? .today
         dockIconMode = DockIconMode.load()
+        launchAtLogin = LaunchAtLogin.isRegistered
         refreshMode = UserDefaults.standard.string(forKey: Self.refreshModeKey)
             .flatMap(RefreshMode.init(rawValue:)) ?? .realTime
     }
@@ -238,6 +240,19 @@ final class AppState {
         switch mode ?? dockIconMode {
         case .always: text(.dockIconAlways)
         case .menuBarOnly: text(.dockIconMenuBarOnly)
+        }
+    }
+
+    func setLaunchAtLogin(_ enabled: Bool) {
+        guard enabled != launchAtLogin else { return }
+        do {
+            try LaunchAtLogin.setRegistered(enabled)
+            launchAtLogin = LaunchAtLogin.isRegistered
+        } catch {
+            launchAtLogin = LaunchAtLogin.isRegistered
+            PrivacyLog.lifecycle.error(
+                "Launch-at-login setting failed: \(error.localizedDescription, privacy: .private(mask: .hash))"
+            )
         }
     }
 
@@ -523,6 +538,7 @@ final class AppState {
                 displayName: displayName,
                 detectedPlan: isPro ? "Pro" : "Plus",
                 selectedTier: isPro ? .pro20 : .plus,
+                subscriptionExpiresAt: id == 1 ? now.addingTimeInterval(45 * 24 * 60 * 60) : nil,
                 runtimeStatus: runtimeStatus,
                 quotaStatus: quotaStatus,
                 nextRecoveryAt: nextRecoveryAt

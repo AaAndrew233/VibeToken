@@ -65,6 +65,7 @@ struct Sub2APIAccountCapacityOption: Identifiable, Equatable, Sendable {
     let displayName: String?
     let detectedPlan: String
     let selectedTier: Sub2APICapacityTier?
+    let subscriptionExpiresAt: Date?
     let runtimeStatus: Sub2APIAccountRuntimeStatus
     let quotaStatus: Sub2APIAccountQuotaStatus
     let nextRecoveryAt: Date?
@@ -73,6 +74,14 @@ struct Sub2APIAccountCapacityOption: Identifiable, Equatable, Sendable {
 
     var displayedRecoveryAt: Date? {
         runtimeStatus == .rateLimited ? nextRecoveryAt : nil
+    }
+
+    var isAvailableForDisplay: Bool {
+        guard runtimeStatus == .available else { return false }
+        guard case .current(let fiveHourRemaining, let sevenDayRemaining) = quotaStatus else {
+            return false
+        }
+        return fiveHourRemaining > 0 && sevenDayRemaining > 0
     }
 
     var isInvalidForSorting: Bool {

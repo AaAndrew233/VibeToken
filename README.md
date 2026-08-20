@@ -25,7 +25,7 @@
 VibeToken is built for developers who use AI coding tools throughout the day and want one quick, honest view of local usage without opening multiple dashboards.
 
 > [!NOTE]
-> This is an early preview with twenty-two supported AI coding sources. The current release is [v0.1.1 Preview](https://github.com/AaAndrew233/VibeToken/releases/tag/v0.1.1). Downloadable builds are available from GitHub Releases, but they are not yet Apple-notarized.
+> This is an early preview with twenty-two supported AI coding sources. The current release is [v0.1.2 Preview](https://github.com/AaAndrew233/VibeToken/releases/tag/v0.1.2). Downloadable builds are available from GitHub Releases, but they are not yet Apple-notarized.
 
 ## Preview
 
@@ -40,8 +40,8 @@ VibeToken is built for developers who use AI coding tools throughout the day and
 - Input, cache, output, reasoning, model, tool, and session breakdowns.
 - Versioned OpenAI, Anthropic, and Google API price estimates with pricing coverage shown explicitly.
 - Duplicate emission and fork/subagent replay filtering.
-- Optional read-only Sub2API pool monitoring with per-account remaining quota, account-specific estimated recovery times, and explicit rate-limited or unavailable states for Codex 5-hour and 7-day windows.
-- Native macOS menu bar and Dock entry points in English and Simplified Chinese; Dock visibility can be set to always show or menu bar only.
+- Optional read-only Sub2API pool monitoring with per-account remaining quota, plan expiration dates when provided, account-specific estimated recovery times, and explicit rate-limited or unavailable states for Codex 5-hour and 7-day windows.
+- Native macOS menu bar and Dock entry points in English and Simplified Chinese; a dedicated Settings window controls Dock visibility and launch at login, while other settings remain in their existing menus and relay area.
 
 ## Support
 
@@ -99,7 +99,7 @@ The build script creates an ad-hoc signed app at `dist/VibeToken.app`. It is sui
 
 ### Release status
 
-- Current release: [v0.1.1 Preview](https://github.com/AaAndrew233/VibeToken/releases/tag/v0.1.1).
+- Current release: [v0.1.2 Preview](https://github.com/AaAndrew233/VibeToken/releases/tag/v0.1.2).
 - For end-user distribution, use the versioned archive and checksum published on GitHub Releases. Do not share the entire development folder.
 - The current archive is ad-hoc signed and not notarized, so another Mac may show a Gatekeeper warning.
 - A public end-user release should use Developer ID signing, Apple notarization, and a versioned archive or DMG.
@@ -109,10 +109,10 @@ The build script creates an ad-hoc signed app at `dist/VibeToken.app`. It is sui
 1. Open VibeToken and click its menu bar item.
 2. Choose Today, 24H, 7D, or 30D.
 3. Select live, 5-minute, 30-minute, or manual refresh for local usage collection. A connected Sub2API pool checks account membership every 30 seconds and performs a verified quota refresh every 30 minutes.
-4. Use the Dock Icon control to the right of the time-range picker to keep the Dock icon visible or use menu bar only.
+4. Click the gear button in the top-right of the menu bar popover to open Settings and control Dock visibility and launch at login. Time range, language, and refresh mode keep their existing entry points.
 5. Use the language control to switch between English and Simplified Chinese.
 
-For optional Sub2API monitoring, open Relay Capacity settings and sign in with an administrator account. After the first sync, each detected `Plus` account uses `Plus` (1x), while every detected `Pro` account must be assigned `Pro 5x`, `Pro 10x`, or `Pro 20x` manually. An unconfigured Pro account does not receive a guessed default, and pool capacity remains unavailable until it is configured. App startup, Mac wake, a user-initiated refresh, a changed account pool, and the 30-minute schedule all request Sub2API's official usage probe with `force=true`. On released servers without the batch route, VibeToken falls back to the released per-account endpoint with `source=active&force=true` and at most six concurrent requests. It then reads the account list back until every active physical account has a newly persisted, valid 5-hour and 7-day snapshot, or an explicit unavailable or exhausted state. The pool total is published only after the entire set passes validation. A partial or unverifiable refresh hides the current total, reports the verified account count, and keeps only the timestamp of the last successful refresh. VibeToken does not reset, edit, or delete relay accounts.
+For optional Sub2API monitoring, sign in with an administrator account in the existing Relay Capacity area. After the first sync, each detected `Plus` account uses `Plus` (1x), while every detected `Pro` account must be assigned `Pro 5x`, `Pro 10x`, or `Pro 20x` manually. An unconfigured Pro account does not receive a guessed default, and pool capacity remains unavailable until it is configured. App startup, Mac wake, a user-initiated refresh, a changed account pool, and the 30-minute schedule all request Sub2API's official usage probe with `force=true`. On released servers without the batch route, VibeToken falls back to the released per-account endpoint with `source=active&force=true` and at most six concurrent requests. It then reads the account list back until every active physical account has a newly persisted, valid 5-hour and 7-day snapshot, or an explicit unavailable or exhausted state. The pool total is published only after the entire set passes validation. A partial or unverifiable refresh hides the current total, reports the verified account count, and keeps only the timestamp of the last successful refresh. VibeToken does not reset, edit, or delete relay accounts.
 
 ## Accuracy
 
@@ -133,7 +133,7 @@ Cache writes use the normal input price. The current estimator does not apply pe
 
 Pricing sources: [OpenAI](https://developers.openai.com/api/docs/pricing/), [Anthropic](https://platform.claude.com/docs/en/about-claude/pricing), and [Google Gemini](https://ai.google.dev/gemini-api/docs/pricing).
 
-For Sub2API, physical account counts remain unweighted. The UI shows `available / total` for each plan, for example `Plus 7/8 · Pro 4/4`. Capacity is weighted as `Plus = 1`, `Pro 5x = 5`, `Pro 10x = 10`, and `Pro 20x = 20`, then normalized to `100%`. Each account contributes the smaller remaining value of its 5-hour and 7-day windows. Temporarily unavailable, explicitly rate-limited, exhausted, stale, or unobserved accounts remain in the total capacity denominator but contribute zero currently available capacity. The account quota sheet places the 5-hour and 7-day values on one line and shows an estimated recovery below them only when the account is marked rate-limited and every active blocker has a valid future reset time. Accounts are sorted with valid Pro accounts first, earlier recovery times first within a plan, valid Plus accounts next, and invalid accounts last. The pool-level estimate is the earliest complete recovery among those accounts. Shadow accounts are excluded.
+For Sub2API, physical account counts remain unweighted. The UI shows `available / total` for each plan, for example `Plus 7/8 · Pro 4/4`. Capacity is weighted as `Plus = 1`, `Pro 5x = 5`, `Pro 10x = 10`, and `Pro 20x = 20`, then normalized to `100%`. Each account contributes the smaller remaining value of its 5-hour and 7-day windows. Temporarily unavailable, explicitly rate-limited, exhausted, stale, or unobserved accounts remain in the total capacity denominator but contribute zero currently available capacity. The account field shows the plan expiration date below the account name when the server provides it. The account quota sheet is split into Available Accounts and Unavailable Accounts tabs, defaults to Available Accounts, and shows each tab's count. Only accounts with a normal runtime state, current quota data, and remaining capacity in both windows are considered available. The 5-hour and 7-day values remain on one line, and estimated recovery appears below them only when the account is marked rate-limited and every active blocker has a valid future reset time. Accounts are sorted with valid Pro accounts first, earlier recovery times first within a plan, valid Plus accounts next, and invalid accounts last. The pool-level estimate is the earliest complete recovery among those accounts. Shadow accounts are excluded.
 
 ## Privacy
 

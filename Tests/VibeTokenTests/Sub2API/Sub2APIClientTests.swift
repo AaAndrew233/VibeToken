@@ -94,6 +94,16 @@ final class Sub2APIClientTests: XCTestCase {
         XCTAssertEqual(snapshot.sevenDayResetAt, now.addingTimeInterval(100))
     }
 
+    func testSubscriptionExpiryIsMappedFromCredentials() throws {
+        let body = #"{"id":11,"status":"active","schedulable":true,"credentials":{"plan_type":"pro","subscription_expires_at":"2026-12-31T00:00:00Z"}}"#
+        let payload = try JSONDecoder().decode(Sub2APIAccountPayload.self, from: Data(body.utf8))
+
+        XCTAssertEqual(
+            payload.snapshot(now: Date()).subscriptionExpiresAt,
+            ISO8601DateFormatter().date(from: "2026-12-31T00:00:00Z")
+        )
+    }
+
     func testOfficialRuntimeAccountStatusFieldsAreMapped() throws {
         let body = #"{"id":9,"status":"active","schedulable":false,"rate_limit_reset_at":"2026-08-06T01:00:00Z","overload_until":"2026-08-06T02:00:00Z","temp_unschedulable_until":"2026-08-06T03:00:00Z"}"#
         let payload = try JSONDecoder().decode(Sub2APIAccountPayload.self, from: Data(body.utf8))

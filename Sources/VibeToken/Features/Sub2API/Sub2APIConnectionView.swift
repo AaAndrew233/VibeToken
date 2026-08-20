@@ -10,6 +10,12 @@ struct Sub2APIConnectionView: View {
     @State private var verificationCode = ""
     @State private var confirmDisconnect = false
     @State private var selectedTiers: [Int64: Sub2APICapacityTier] = [:]
+    @State private var selectedCapacityTab = CapacityTab.available
+
+    private enum CapacityTab {
+        case available
+        case unavailable
+    }
 
     private enum TableLayout {
         static let planWidth: CGFloat = 52
@@ -202,27 +208,34 @@ struct Sub2APIConnectionView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            Picker("", selection: $selectedCapacityTab) {
+                Text("\(state.text(.availableAccountTab)) \(availableCapacityOptions.count)")
+                    .tag(CapacityTab.available)
+                Text("\(state.text(.unavailableAccountTab)) \(unavailableCapacityOptions.count)")
+                    .tag(CapacityTab.unavailable)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
             VStack(spacing: 0) {
                 capacityTableHeader
                 Divider()
 
-                if state.sub2APIAccountCapacityOptions.isEmpty {
+                if visibleCapacityOptions.isEmpty {
                     HStack(spacing: 9) {
                         if state.sub2APIStatus.isBusy {
                             ProgressView().controlSize(.small)
                         }
-                        Text(state.text(
-                            state.sub2APIStatus.isBusy ? .syncing : .noAccountsFound
-                        ))
+                        Text(emptyCapacityTabText)
                             .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 0) {
-                            ForEach(state.sub2APIAccountCapacityOptions) { option in
+                            ForEach(visibleCapacityOptions) { option in
                                 capacityRow(option)
-                                if option.id != state.sub2APIAccountCapacityOptions.last?.id {
+                                if option.id != visibleCapacityOptions.last?.id {
                                     Divider().padding(.leading, 10)
                                 }
                             }
@@ -231,7 +244,7 @@ struct Sub2APIConnectionView: View {
                     .scrollIndicators(.visible)
                 }
             }
-            .frame(minHeight: 280, idealHeight: 340, maxHeight: 340)
+            .frame(minHeight: 250, idealHeight: 310, maxHeight: 310)
             .background(.quaternary.opacity(0.24), in: RoundedRectangle(cornerRadius: 8))
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay {
@@ -262,6 +275,35 @@ struct Sub2APIConnectionView: View {
         .background(.quaternary.opacity(0.42))
     }
 
+    private var availableCapacityOptions: [Sub2APIAccountCapacityOption] {
+        state.sub2APIAccountCapacityOptions.filter(\.isAvailableForDisplay)
+    }
+
+    private var unavailableCapacityOptions: [Sub2APIAccountCapacityOption] {
+        state.sub2APIAccountCapacityOptions.filter { !$0.isAvailableForDisplay }
+    }
+
+    private var visibleCapacityOptions: [Sub2APIAccountCapacityOption] {
+        switch selectedCapacityTab {
+        case .available:
+            availableCapacityOptions
+        case .unavailable:
+            unavailableCapacityOptions
+        }
+    }
+
+    private var emptyCapacityTabText: String {
+        if state.sub2APIStatus.isBusy {
+            return state.text(.syncing)
+        }
+        if state.sub2APIAccountCapacityOptions.isEmpty {
+            return state.text(.noAccountsFound)
+        }
+        return state.language == .simplifiedChinese
+            ? "此分类暂无账号"
+            : "No accounts in this tab"
+    }
+
     private func capacityRow(_ option: Sub2APIAccountCapacityOption) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
@@ -269,6 +311,7 @@ struct Sub2APIConnectionView: View {
                     .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
                     .help(option.displayName ?? "\(state.text(.account)) #\(option.accountID)")
+                subscriptionExpiryText(option.subscriptionExpiresAt)
                 if option.displayName != nil || option.runtimeStatus != .available {
                     HStack(spacing: 6) {
                         if option.displayName != nil {
@@ -389,13 +432,28 @@ struct Sub2APIConnectionView: View {
                     + recoveryHelp(nextRecoveryAt)
             )
         case .stale:
-            Text(state.text(.staleData))
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(state.text(.staleData))
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
         case .unobserved:
-            Text(state.text(.missingWindow))
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(state.text(.missingWindow))
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func subscriptionExpiryText(_ date: Date?) -> some View {
+        if let date {
+            Text("\(state.text(.subscriptionExpires)) \(subscriptionExpiryDateText(date))")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(date <= Date() ? .red : .secondary)
+                .lineLimit(1)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -434,6 +492,17 @@ struct Sub2APIConnectionView: View {
         formatter.dateFormat = state.language == .simplifiedChinese
             ? "M/d HH:mm"
             : "MMM d, HH:mm"
+        return formatter.string(from: date)
+    }
+
+    private func subscriptionExpiryDateText(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = state.language == .simplifiedChinese
+            ? Locale(identifier: "zh_Hans_CN")
+            : Locale(identifier: "en_US")
+        formatter.dateFormat = state.language == .simplifiedChinese
+            ? "yyyy/M/d HH:mm"
+            : "MMM d, yyyy HH:mm"
         return formatter.string(from: date)
     }
 

@@ -124,6 +124,12 @@ final class Sub2APIPoolMonitorTests: XCTestCase {
         XCTAssertEqual(optionsByID[6]?.runtimeStatus, .unavailable)
         XCTAssertNil(optionsByID[6]?.nextRecoveryAt)
         XCTAssertNil(optionsByID[6]?.displayedRecoveryAt)
+        XCTAssertFalse(optionsByID[1]?.isAvailableForDisplay ?? true)
+        XCTAssertFalse(optionsByID[2]?.isAvailableForDisplay ?? true)
+        XCTAssertFalse(optionsByID[3]?.isAvailableForDisplay ?? true)
+        XCTAssertTrue(optionsByID[4]?.isAvailableForDisplay ?? false)
+        XCTAssertFalse(optionsByID[5]?.isAvailableForDisplay ?? true)
+        XCTAssertFalse(optionsByID[6]?.isAvailableForDisplay ?? true)
         XCTAssertEqual(
             snapshot?.effectiveCapacity.nextRecoveryAt,
             options.compactMap(\.nextRecoveryAt).min()

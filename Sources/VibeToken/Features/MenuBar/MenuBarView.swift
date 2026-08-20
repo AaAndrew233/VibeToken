@@ -11,6 +11,7 @@ struct MenuBarView: View {
     @State private var manualRefreshFeedback = ManualRefreshFeedback.idle
     @State private var showingSub2APIConnection = false
 
+    let onOpenSettings: () -> Void
     let onQuit: () -> Void
 
     private let distributionColors: [Color] = [
@@ -122,6 +123,14 @@ struct MenuBarView: View {
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
+            Button(action: onOpenSettings) {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(width: 26, height: 26)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(state.text(.settings))
+            .help(state.text(.settings))
         }
         .padding(.horizontal, 20)
         .frame(height: 52)
@@ -158,25 +167,34 @@ struct MenuBarView: View {
             .labelsHidden()
             .frame(maxWidth: .infinity)
 
-            dockIconPicker
+            appBehaviorMenu
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
     }
 
-    private var dockIconPicker: some View {
-        Picker(selection: Binding(
-            get: { state.dockIconMode },
-            set: { state.dockIconMode = $0 }
-        )) {
-            ForEach(DockIconMode.allCases) { mode in
-                Text(state.dockIconModeTitle(mode)).tag(mode)
+    private var appBehaviorMenu: some View {
+        Menu {
+            Picker(state.text(.dockIcon), selection: Binding(
+                get: { state.dockIconMode },
+                set: { state.dockIconMode = $0 }
+            )) {
+                ForEach(DockIconMode.allCases) { mode in
+                    Text(state.dockIconModeTitle(mode)).tag(mode)
+                }
+            }
+
+            Toggle(isOn: Binding(
+                get: { state.launchAtLogin },
+                set: { state.setLaunchAtLogin($0) }
+            )) {
+                Text(state.text(.launchAtLogin))
             }
         } label: {
-            Label(state.text(.dockIcon), systemImage: "dock.rectangle")
+            Label(state.text(.dockAndStartup), systemImage: "gearshape")
                 .font(.system(size: 12))
         }
-        .pickerStyle(.menu)
+        .menuStyle(.borderlessButton)
         .fixedSize()
     }
 

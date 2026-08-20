@@ -562,6 +562,7 @@ final class Sub2APIPoolAggregatorTests: XCTestCase {
             parentAccountID: parentID,
             plan: plan,
             capacityTier: capacityTier,
+            subscriptionExpiresAt: nil,
             fiveHourUsedPercent: fiveHour,
             fiveHourResetAt: fiveHourResetAt,
             sevenDayUsedPercent: sevenDay,

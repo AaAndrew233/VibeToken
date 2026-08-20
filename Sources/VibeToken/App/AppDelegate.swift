@@ -2,11 +2,12 @@ import AppKit
 import SwiftUI
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem?
     private let popover = NSPopover()
     private let outsideClickMonitor = OutsideClickMonitor()
     private var visualTestWindow: NSWindow?
+    private var settingsWindow: NSWindow?
     private var state: AppState?
     private var menuBarSummaryAnimator: MenuBarSummaryAnimator?
     private var wakeObserver: NSObjectProtocol?
@@ -191,6 +192,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.contentViewController = NSHostingController(
             rootView: MenuBarView(
                 state: state,
+                onOpenSettings: { [weak self] in
+                    self?.closePopover(nil)
+                    self?.showSettingsWindow()
+                },
                 onQuit: { NSApp.terminate(nil) }
             )
         )
@@ -221,6 +226,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.performClose(sender)
     }
 
+    private func showSettingsWindow() {
+        guard let state else { return }
+        if let settingsWindow, settingsWindow.isVisible {
+            NSApp.activate(ignoringOtherApps: true)
+            settingsWindow.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 220),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = state.text(.settings)
+        window.minSize = NSSize(width: 380, height: 190)
+        window.maxSize = NSSize(width: 620, height: 360)
+        window.isReleasedWhenClosed = false
+        window.contentViewController = NSHostingController(
+            rootView: SettingsWindowView(
+                state: state
+            )
+        )
+        window.delegate = self
+        window.center()
+        applyDockIconMode(state.dockIconMode)
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        settingsWindow = window
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let closingWindow = notification.object as? NSWindow else { return }
+        if closingWindow === settingsWindow {
+            settingsWindow = nil
+        }
+        if closingWindow === visualTestWindow {
+            visualTestWindow = nil
+        }
+    }
+
     func popoverDidClose(_ notification: Notification) {
         outsideClickMonitor.stop()
     }
@@ -237,11 +283,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     private func scheduleVisualTestSurfaceIfNeeded() {
         let mode = ProcessInfo.processInfo.environment["VIBETOKEN_UI_TEST_MODE"]
-        guard mode == "popover" || mode == "status-popover" else { return }
+        guard mode == "popover" || mode == "status-popover" || mode == "settings" else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
             guard let self else { return }
             if mode == "status-popover" {
                 togglePopover(nil)
+            } else if mode == "settings" {
+                showSettingsWindow()
             } else {
                 showPopoverVisualTestWindow()
             }
@@ -261,6 +309,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         window.contentViewController = NSHostingController(
             rootView: MenuBarView(
                 state: state,
+                onOpenSettings: { [weak self] in
+                    self?.closePopover(nil)
+                    self?.showSettingsWindow()
+                },
                 onQuit: { NSApp.terminate(nil) }
             )
         )

@@ -86,16 +86,19 @@ struct Sub2APIAccountPayload: Decodable, Sendable {
     struct Credentials: Decodable, Sendable {
         let planType: String?
         let name: String?
+        let subscriptionExpiresAt: String?
 
         enum CodingKeys: String, CodingKey {
             case planType = "plan_type"
             case name
+            case subscriptionExpiresAt = "subscription_expires_at"
         }
 
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             planType = container.flexibleString(forKey: .planType)
             name = container.flexibleString(forKey: .name)
+            subscriptionExpiresAt = container.flexibleString(forKey: .subscriptionExpiresAt)
         }
     }
 
@@ -183,6 +186,7 @@ struct Sub2APIAccountPayload: Decodable, Sendable {
             parentAccountID: parentAccountID,
             plan: Self.normalizedPlan(credentials?.planType),
             capacityTier: resolvedCapacityTier(configuredTier: capacityTier),
+            subscriptionExpiresAt: credentials?.subscriptionExpiresAt.flatMap(Self.parseDate),
             fiveHourUsedPercent: extra?.fiveHourUsedPercent ?? fiveHourFallback?.usedPercent,
             fiveHourResetAt: Self.resolveResetAt(
                 absolute: extra?.fiveHourResetAt,
