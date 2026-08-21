@@ -166,36 +166,9 @@ struct MenuBarView: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .frame(maxWidth: .infinity)
-
-            appBehaviorMenu
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
-    }
-
-    private var appBehaviorMenu: some View {
-        Menu {
-            Picker(state.text(.dockIcon), selection: Binding(
-                get: { state.dockIconMode },
-                set: { state.dockIconMode = $0 }
-            )) {
-                ForEach(DockIconMode.allCases) { mode in
-                    Text(state.dockIconModeTitle(mode)).tag(mode)
-                }
-            }
-
-            Toggle(isOn: Binding(
-                get: { state.launchAtLogin },
-                set: { state.setLaunchAtLogin($0) }
-            )) {
-                Text(state.text(.launchAtLogin))
-            }
-        } label: {
-            Label(state.text(.dockAndStartup), systemImage: "gearshape")
-                .font(.system(size: 12))
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
     }
 
     private var summary: some View {

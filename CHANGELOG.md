@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.3] - 2026-08-21
+
+### Changed
+
+- Removed the duplicate Dock and startup controls from the menu bar popover; these options now live only in the dedicated Settings window.
+- Kept the menu bar popover visible when opening or using the Settings window.
+- Updated English and Simplified Chinese documentation and visual QA records.
+
 ## [0.1.2] - 2026-08-20
 
 ### Added

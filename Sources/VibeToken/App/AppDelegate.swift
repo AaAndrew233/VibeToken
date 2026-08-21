@@ -185,7 +185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     }
 
     private func configurePopover(state: AppState) {
-        popover.behavior = .transient
+        popover.behavior = .applicationDefined
         popover.animates = true
         popover.delegate = self
         popover.contentSize = NSSize(width: 500, height: 720)
@@ -193,7 +193,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             rootView: MenuBarView(
                 state: state,
                 onOpenSettings: { [weak self] in
-                    self?.closePopover(nil)
                     self?.showSettingsWindow()
                 },
                 onQuit: { NSApp.terminate(nil) }
@@ -310,7 +309,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             rootView: MenuBarView(
                 state: state,
                 onOpenSettings: { [weak self] in
-                    self?.closePopover(nil)
                     self?.showSettingsWindow()
                 },
                 onQuit: { NSApp.terminate(nil) }
