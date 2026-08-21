@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- Removed redundant internal account IDs from named relay account rows while retaining a fallback identifier for unnamed accounts.
+
 ## [0.1.3] - 2026-08-21
 
 ### Changed

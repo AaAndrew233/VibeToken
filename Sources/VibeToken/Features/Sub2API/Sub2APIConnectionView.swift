@@ -312,15 +312,8 @@ struct Sub2APIConnectionView: View {
                     .lineLimit(1)
                     .help(option.displayName ?? "\(state.text(.account)) #\(option.accountID)")
                 subscriptionExpiryText(option.subscriptionExpiresAt)
-                if option.displayName != nil || option.runtimeStatus != .available {
-                    HStack(spacing: 6) {
-                        if option.displayName != nil {
-                            Text("#\(option.accountID)")
-                                .font(.system(size: 9, design: .monospaced))
-                                .foregroundStyle(.tertiary)
-                        }
-                        accountRuntimeBadge(option.runtimeStatus)
-                    }
+                if option.runtimeStatus != .available {
+                    accountRuntimeBadge(option.runtimeStatus)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
