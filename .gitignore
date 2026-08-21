@@ -8,3 +8,5 @@ dist/
 
 # Local design iterations are not part of the public repository.
 design-work/
+artifacts/
+design-qa.md

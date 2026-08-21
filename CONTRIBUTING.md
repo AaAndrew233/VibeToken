@@ -31,6 +31,7 @@ open "dist/VibeToken.app"
 5. Verify English and Simplified Chinese UI at the `500x720` menu size.
 6. Update both README files when public behavior changes.
 7. Run `swift test` before submitting.
+8. Keep internal QA screenshots, comparison images, progress notes, and local-path reports under `.local/`. Only user-facing assets referenced by public documentation belong under `docs/`.
 
 ## Project principles
 
