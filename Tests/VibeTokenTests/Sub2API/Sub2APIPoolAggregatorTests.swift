@@ -157,6 +157,58 @@ final class Sub2APIPoolAggregatorTests: XCTestCase {
         XCTAssertEqual(snapshot.effectiveCapacity.remainingEquivalentAccounts, 0)
     }
 
+    func testAvailableAccountSummaryExcludesRuntimeUnavailableAccounts() throws {
+        let now = Date()
+        let availableAccounts = (1...7).map { id in
+            account(
+                id: Int64(id),
+                plan: id <= 6 ? "Pro" : "Plus",
+                fiveHour: 1.6,
+                sevenDay: 1.6,
+                updatedAt: now
+            )
+        }
+        let runtimeUnavailableAccounts = (8...9).map { id in
+            account(
+                id: Int64(id),
+                schedulable: false,
+                plan: "Free",
+                fiveHour: 0,
+                sevenDay: 0,
+                updatedAt: now
+            )
+        }
+        let inactiveAccounts = (10...12).map { id in
+            account(
+                id: Int64(id),
+                status: "error",
+                schedulable: false,
+                plan: "Free",
+                fiveHour: 0,
+                sevenDay: 0,
+                updatedAt: now
+            )
+        }
+
+        let snapshot = Sub2APIPoolAggregator.aggregate(
+            accounts: availableAccounts + runtimeUnavailableAccounts + inactiveAccounts,
+            fetchedAt: now,
+            staleAfter: 900
+        )
+
+        XCTAssertEqual(snapshot.totalAccounts, 12)
+        XCTAssertEqual(snapshot.eligibleAccounts, 7)
+        XCTAssertEqual(snapshot.unavailableAccounts, 5)
+        XCTAssertEqual(snapshot.totalCapacityAccounts, 9)
+        XCTAssertEqual(snapshot.displayedAvailableAccountTotal, 7)
+        XCTAssertEqual(snapshot.effectiveCapacity.availableAccounts, 7)
+        XCTAssertEqual(try XCTUnwrap(snapshot.displayedAvailableAccountFraction), 1, accuracy: 0.000_001)
+        XCTAssertEqual(
+            snapshot.plans.map { "\($0.plan):\($0.availableAccountCount)/\($0.accountCount)" },
+            ["Pro:6/6", "Plus:1/1"]
+        )
+    }
+
     func testOfficialRuntimeStatusSeparatesRateLimitedAndUnavailableAccounts() {
         let now = Date()
         let accounts = [

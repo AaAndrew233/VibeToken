@@ -25,7 +25,7 @@
 VibeToken is built for developers who use AI coding tools throughout the day and want one quick, honest view of local usage without opening multiple dashboards.
 
 > [!NOTE]
-> This is an early preview with twenty-two supported AI coding sources. The current release is [v0.1.3 Preview](https://github.com/AaAndrew233/VibeToken/releases/tag/v0.1.3). Downloadable builds are available from GitHub Releases, but they are not yet Apple-notarized.
+> This is an early preview with twenty-two supported AI coding sources. The current release is [v0.1.4 Preview](https://github.com/AaAndrew233/VibeToken/releases/tag/v0.1.4). Downloadable builds are available from GitHub Releases, but they are not yet Apple-notarized.
 
 ## Preview
 
@@ -99,7 +99,7 @@ The build script creates an ad-hoc signed app at `dist/VibeToken.app`. It is sui
 
 ### Release status
 
-- Current release: [v0.1.3 Preview](https://github.com/AaAndrew233/VibeToken/releases/tag/v0.1.3).
+- Current release: [v0.1.4 Preview](https://github.com/AaAndrew233/VibeToken/releases/tag/v0.1.4).
 - For end-user distribution, use the versioned archive and checksum published on GitHub Releases. Do not share the entire development folder.
 - The current archive is ad-hoc signed and not notarized, so another Mac may show a Gatekeeper warning.
 - A public end-user release should use Developer ID signing, Apple notarization, and a versioned archive or DMG.
@@ -133,7 +133,7 @@ Cache writes use the normal input price. The current estimator does not apply pe
 
 Pricing sources: [OpenAI](https://developers.openai.com/api/docs/pricing/), [Anthropic](https://platform.claude.com/docs/en/about-claude/pricing), and [Google Gemini](https://ai.google.dev/gemini-api/docs/pricing).
 
-For Sub2API, physical account counts remain unweighted. The UI shows `available / total` for each plan, for example `Plus 7/8 · Pro 4/4`. Capacity is weighted as `Plus = 1`, `Pro 5x = 5`, `Pro 10x = 10`, and `Pro 20x = 20`, then normalized to `100%`. Each account contributes the smaller remaining value of its 5-hour and 7-day windows. Temporarily unavailable, explicitly rate-limited, exhausted, stale, or unobserved accounts remain in the total capacity denominator but contribute zero currently available capacity. The account field shows the plan expiration date below the account name when the server provides it. The account quota sheet is split into Available Accounts and Unavailable Accounts tabs, defaults to Available Accounts, and shows each tab's count. Only accounts with a normal runtime state, current quota data, and remaining capacity in both windows are considered available. The 5-hour and 7-day values remain on one line, and estimated recovery appears below them only when the account is marked rate-limited and every active blocker has a valid future reset time. Accounts are sorted with valid Pro accounts first, earlier recovery times first within a plan, valid Plus accounts next, and invalid accounts last. The pool-level estimate is the earliest complete recovery among those accounts. Shadow accounts are excluded.
+For Sub2API, physical account counts remain unweighted. The availability card and plan summary show `currently available / schedulable total`, for example `Plus 7/8 · Pro 4/4`, without mixing runtime-unavailable accounts into that total. The separate quota-capacity percentage keeps all active accounts in its denominator so unavailable capacity is not hidden. Capacity is weighted as `Plus = 1`, `Pro 5x = 5`, `Pro 10x = 10`, and `Pro 20x = 20`, then normalized to `100%`. Each account contributes the smaller remaining value of its 5-hour and 7-day windows. Temporarily unavailable, explicitly rate-limited, exhausted, stale, or unobserved accounts remain in the total capacity denominator but contribute zero currently available capacity. The account field shows the plan expiration date below the account name when the server provides it. The account quota sheet is split into Available Accounts and Unavailable Accounts tabs, defaults to Available Accounts, and shows each tab's count. Only accounts with a normal runtime state, current quota data, and remaining capacity in both windows are considered available. The 5-hour and 7-day values remain on one line, and estimated recovery appears below them only when the account is marked rate-limited and every active blocker has a valid future reset time. Accounts are sorted with valid Pro accounts first, earlier recovery times first within a plan, valid Plus accounts next, and invalid accounts last. The pool-level estimate is the earliest complete recovery among those accounts. Shadow accounts are excluded.
 
 ## Privacy
 

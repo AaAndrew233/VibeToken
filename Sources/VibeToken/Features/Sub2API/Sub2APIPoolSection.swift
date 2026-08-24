@@ -186,7 +186,7 @@ struct Sub2APIPoolSection: View {
                 .font(.system(size: 24, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(
-                    snapshot.totalCapacityAccounts == 0
+                    snapshot.displayedAvailableAccountTotal == 0
                         ? AnyShapeStyle(.secondary)
                         : AnyShapeStyle(.primary)
                 )
@@ -316,8 +316,8 @@ struct Sub2APIPoolSection: View {
     }
 
     private func availableAccountCountText(_ snapshot: Sub2APIPoolSnapshot) -> String {
-        guard snapshot.totalCapacityAccounts > 0 else { return "--" }
-        return "\(snapshot.effectiveCapacity.availableAccounts) / \(snapshot.totalCapacityAccounts)"
+        guard snapshot.displayedAvailableAccountTotal > 0 else { return "--" }
+        return "\(snapshot.effectiveCapacity.availableAccounts) / \(snapshot.displayedAvailableAccountTotal)"
     }
 
     private func poolCapacityText(_ snapshot: Sub2APIPoolSnapshot) -> String {

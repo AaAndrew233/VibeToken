@@ -25,7 +25,7 @@
 VibeToken 面向高频使用 AI 编程工具的开发者，在一个菜单栏弹框中快速查看真实本地用量，不必反复打开多个后台页面。
 
 > [!NOTE]
-> 当前为早期预览版，已支持 22 个 AI 编程数据源。当前版本是 [v0.1.3 Preview](https://github.com/AaAndrew233/VibeToken/releases/tag/v0.1.3)。GitHub Releases 提供可下载安装包，但安装包尚未经过 Apple 公证。
+> 当前为早期预览版，已支持 22 个 AI 编程数据源。当前版本是 [v0.1.4 Preview](https://github.com/AaAndrew233/VibeToken/releases/tag/v0.1.4)。GitHub Releases 提供可下载安装包，但安装包尚未经过 Apple 公证。
 
 ## 界面预览
 
@@ -99,7 +99,7 @@ open "dist/VibeToken.app"
 
 ### 发布说明
 
-- 当前版本：[v0.1.3 Preview](https://github.com/AaAndrew233/VibeToken/releases/tag/v0.1.3)。
+- 当前版本：[v0.1.4 Preview](https://github.com/AaAndrew233/VibeToken/releases/tag/v0.1.4)。
 - 面向用户分享时，使用 GitHub Releases 中的版本化安装包和校验文件，不要直接分享整个开发目录。
 - 当前安装包使用 ad-hoc 签名且未经过 Apple 公证，其他 Mac 可能显示 Gatekeeper 安全提示。
 - 面向普通用户正式发布时，应使用 Developer ID 签名、Apple 公证和带版本号的压缩包或 DMG。
@@ -132,7 +132,7 @@ Token 来自结构化用量字段。Kiro CLI 是例外：其原生会话日志�
 
 价格来源：[OpenAI](https://developers.openai.com/api/docs/pricing/)、[Anthropic](https://platform.claude.com/docs/en/about-claude/pricing)、[Google Gemini](https://ai.google.dev/gemini-api/docs/pricing)。
 
-Sub2API 的账号数量仍按真实实体账号统计；界面按套餐显示“当前可用数 / 套餐总数”，例如 `Plus 7/8 · Pro 4/4`。额度按 `Plus = 1`、`Pro 5x = 5`、`Pro 10x = 10`、`Pro 20x = 20` 加权后统一归一化为 `100%`。每个账号的实际可用额度取其 5h 和 7d 窗口剩余值中的较小值。临时不可用、明确限流、窗口耗尽、数据过期或未探测的账号仍保留在总容量分母中，但当前可用额度贡献按 `0` 计算。账号字段在名称下方显示服务端返回的套餐到期时间；账号额度弹窗拆分为“可用账号”和“不可用账号”两个 Tab，默认显示可用账号并在 Tab 上显示数量。只有运行状态正常、额度数据有效且 5h/7d 都有剩余的账号才归入可用；仅当账号已标记为限流，且全部有效阻塞都具备未来恢复时间时，才在额度下方显示该账号的预计恢复。排序时有效 Pro 账号优先，同一套餐内恢复时间早的优先，再排有效 Plus 账号，失效账号统一置底。池级预计恢复取这些账号中最早完整恢复的时间。影子账号不重复计数。
+Sub2API 的账号数量仍按真实实体账号统计；可用账号卡片和套餐汇总显示“当前可用数 / 可调度账号总数”，例如 `Plus 7/8 · Pro 4/4`，不会把运行时不可用账号混入这个总数。单独的额度容量百分比仍保留全部 active 账号作为分母，避免隐藏不可用容量。额度按 `Plus = 1`、`Pro 5x = 5`、`Pro 10x = 10`、`Pro 20x = 20` 加权后统一归一化为 `100%`。每个账号的实际可用额度取其 5h 和 7d 窗口剩余值中的较小值。临时不可用、明确限流、窗口耗尽、数据过期或未探测的账号仍保留在总容量分母中，但当前可用额度贡献按 `0` 计算。账号字段在名称下方显示服务端返回的套餐到期时间；账号额度弹窗拆分为“可用账号”和“不可用账号”两个 Tab，默认显示可用账号并在 Tab 上显示数量。只有运行状态正常、额度数据有效且 5h/7d 都有剩余的账号才归入可用；仅当账号已标记为限流，且全部有效阻塞都具备未来恢复时间时，才在额度下方显示该账号的预计恢复。排序时有效 Pro 账号优先，同一套餐内恢复时间早的优先，再排有效 Plus 账号，失效账号统一置底。池级预计恢复取这些账号中最早完整恢复的时间。影子账号不重复计数。
 
 ## 隐私
 

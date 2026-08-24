@@ -2,9 +2,12 @@
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-08-24
+
 ### Changed
 
 - Removed redundant internal account IDs from named relay account rows while retaining a fallback identifier for unnamed accounts.
+- Aligned the relay availability count and plan summary with schedulable accounts, excluding runtime-unavailable accounts without changing quota-capacity weighting.
 
 ## [0.1.3] - 2026-08-21
 

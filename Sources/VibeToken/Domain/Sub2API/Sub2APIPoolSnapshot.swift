@@ -124,9 +124,13 @@ struct Sub2APIPoolSnapshot: Equatable, Sendable {
         effectiveCapacity.totalCapacityWeight
     }
 
+    var displayedAvailableAccountTotal: Int {
+        eligibleAccounts
+    }
+
     var displayedAvailableAccountFraction: Double? {
-        guard totalCapacityAccounts > 0 else { return nil }
-        return Double(effectiveCapacity.availableAccounts) / Double(totalCapacityAccounts)
+        guard displayedAvailableAccountTotal > 0 else { return nil }
+        return Double(effectiveCapacity.availableAccounts) / Double(displayedAvailableAccountTotal)
     }
 
     var displayedRemainingFraction: Double? {
@@ -206,7 +210,7 @@ enum Sub2APIPoolAggregator {
             .union(staleIDs)
             .union(missingIDs)
 
-        let grouped = Dictionary(grouping: activeAccounts, by: \.plan)
+        let grouped = Dictionary(grouping: operational, by: \.plan)
         let plans = grouped.map { plan, planAccounts in
             Sub2APIPlanSnapshot(
                 plan: plan,
