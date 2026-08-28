@@ -108,7 +108,7 @@ The build script creates an ad-hoc signed app at `dist/VibeToken.app`. It is sui
 
 1. Open VibeToken and click its menu bar item.
 2. Choose Today, 24H, 7D, or 30D.
-3. Select live, 5-minute, 30-minute, or manual refresh for local usage collection. A connected Sub2API pool checks account membership every 30 seconds and performs a verified quota refresh every 30 minutes.
+3. Select live, 5-minute, 30-minute, or manual refresh for local usage collection. Live mode reacts to file changes, coalesces burst writes, and uses a 60-second fallback scan if an event is missed. A connected Sub2API pool checks account membership every 30 seconds and performs a verified quota refresh every 30 minutes.
 4. Click the gear button in the top-right of the menu bar popover to open Settings and control Dock visibility and launch at login. The popover remains open while Settings appears; these two options are not duplicated elsewhere in the popover.
 5. Use the language control to switch between English and Simplified Chinese.
 

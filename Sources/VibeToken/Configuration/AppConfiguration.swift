@@ -65,8 +65,8 @@ struct AppConfiguration: Sendable {
         return AppConfiguration(
             codexHome: codexHome,
             applicationSupportDirectory: defaultApplicationSupportDirectory,
-            refreshInterval: .seconds(5),
-            fileEventDebounceMilliseconds: 100,
+            refreshInterval: .seconds(60),
+            fileEventDebounceMilliseconds: 500,
             maximumTailBytes: 4 * 1_024 * 1_024,
             ingestionChunkBytes: 512 * 1_024,
             maximumJSONLineBytes: 8 * 1_024 * 1_024,

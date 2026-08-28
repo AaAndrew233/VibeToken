@@ -3,6 +3,13 @@ import XCTest
 @testable import VibeToken
 
 final class RefreshModeTests: XCTestCase {
+    func testLiveConfigurationUsesFileEventsWithLowFrequencyFallback() {
+        let configuration = AppConfiguration.live()
+
+        XCTAssertEqual(configuration.refreshInterval, .seconds(60))
+        XCTAssertEqual(configuration.fileEventDebounceMilliseconds, 500)
+    }
+
     func testRealTimeUsesFileEventsAndFallbackPolling() {
         let fallback = Duration.seconds(5)
 

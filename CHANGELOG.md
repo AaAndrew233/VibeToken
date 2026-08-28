@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Reduced background filesystem work in live refresh mode by using file events for immediate updates, extending the fallback scan to 60 seconds, coalescing burst writes, and caching source discovery and watch targets.
+
 ## [0.1.4] - 2026-08-24
 
 ### Changed

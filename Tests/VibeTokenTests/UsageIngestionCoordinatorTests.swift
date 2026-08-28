@@ -41,6 +41,90 @@ final class UsageIngestionCoordinatorTests: XCTestCase {
             XCTFail("Unexpected error: \(error)")
         }
     }
+
+    func testUnavailableSourceDiscoveryIsCachedUntilExpiry() async throws {
+        let database = try VibeTokenDatabase.inMemory()
+        let source = CountingUsageSourceAdapter(isAvailable: false)
+        let coordinator = UsageIngestionCoordinator(
+            sources: [source],
+            repository: UsageRepository(database: database),
+            maximumWatchFiles: 10,
+            sourceDiscoveryCacheInterval: 60
+        )
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+        try await coordinator.ingestRecentSessions(now: now)
+        try await coordinator.ingestRecentSessions(now: now.addingTimeInterval(30))
+        let cachedDiscoveryCount = await source.discoveryCount
+        XCTAssertEqual(cachedDiscoveryCount, 1)
+
+        try await coordinator.ingestRecentSessions(now: now.addingTimeInterval(60))
+        let expiredDiscoveryCount = await source.discoveryCount
+        let ingestionCount = await source.ingestionCount
+        XCTAssertEqual(expiredDiscoveryCount, 2)
+        XCTAssertEqual(ingestionCount, 0)
+    }
+
+    func testWatchTargetsAreCachedUntilExpiry() async throws {
+        let database = try VibeTokenDatabase.inMemory()
+        let source = CountingUsageSourceAdapter(isAvailable: true)
+        let coordinator = UsageIngestionCoordinator(
+            sources: [source],
+            repository: UsageRepository(database: database),
+            maximumWatchFiles: 10,
+            sourceDiscoveryCacheInterval: 60,
+            watchTargetCacheInterval: 300
+        )
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+        _ = await coordinator.watchTargets(now: now)
+        _ = await coordinator.watchTargets(now: now.addingTimeInterval(299))
+        let cachedWatchTargetCount = await source.watchTargetCount
+        XCTAssertEqual(cachedWatchTargetCount, 1)
+
+        _ = await coordinator.watchTargets(now: now.addingTimeInterval(300))
+        let expiredWatchTargetCount = await source.watchTargetCount
+        XCTAssertEqual(expiredWatchTargetCount, 2)
+    }
+
+    func testFailedWatchTargetCollectionIsRetriedWithoutCaching() async throws {
+        let database = try VibeTokenDatabase.inMemory()
+        let source = TransientWatchFailureUsageSourceAdapter()
+        let coordinator = UsageIngestionCoordinator(
+            sources: [source],
+            repository: UsageRepository(database: database),
+            maximumWatchFiles: 10,
+            watchTargetCacheInterval: 300
+        )
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+        _ = await coordinator.watchTargets(now: now)
+        _ = await coordinator.watchTargets(now: now.addingTimeInterval(1))
+
+        let watchTargetCount = await source.watchTargetCount
+        XCTAssertEqual(watchTargetCount, 2)
+    }
+
+    func testSourceAvailabilityChangeInvalidatesWatchTargetCache() async throws {
+        let database = try VibeTokenDatabase.inMemory()
+        let source = CountingUsageSourceAdapter(isAvailable: false)
+        let coordinator = UsageIngestionCoordinator(
+            sources: [source],
+            repository: UsageRepository(database: database),
+            maximumWatchFiles: 10,
+            sourceDiscoveryCacheInterval: 60,
+            watchTargetCacheInterval: 300
+        )
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+        _ = await coordinator.watchTargets(now: now)
+        await source.setAvailable(true)
+        try await coordinator.ingestRecentSessions(now: now.addingTimeInterval(60))
+        _ = await coordinator.watchTargets(now: now.addingTimeInterval(61))
+
+        let watchTargetCount = await source.watchTargetCount
+        XCTAssertEqual(watchTargetCount, 1)
+    }
 }
 
 private actor FailingUsageSourceAdapter: UsageSourceAdapter {
@@ -95,6 +179,58 @@ private actor FixtureUsageSourceAdapter: UsageSourceAdapter {
     }
 
     func watchTargets(now: Date) async throws -> UsageWatchTargets { .empty }
+}
+
+private actor CountingUsageSourceAdapter: UsageSourceAdapter {
+    nonisolated let sourceIdentifier = "counting"
+    nonisolated let displayName = "Counting"
+    nonisolated let accuracy = UsageAccuracy.exact
+
+    private(set) var discoveryCount = 0
+    private(set) var ingestionCount = 0
+    private(set) var watchTargetCount = 0
+    private var isAvailable: Bool
+
+    init(isAvailable: Bool) {
+        self.isAvailable = isAvailable
+    }
+
+    func discover() async -> Bool {
+        discoveryCount += 1
+        return isAvailable
+    }
+
+    func setAvailable(_ isAvailable: Bool) {
+        self.isAvailable = isAvailable
+    }
+
+    func ingestRecentSessions(now _: Date) async throws {
+        ingestionCount += 1
+    }
+
+    func watchTargets(now _: Date) async throws -> UsageWatchTargets {
+        watchTargetCount += 1
+        return .empty
+    }
+}
+
+private actor TransientWatchFailureUsageSourceAdapter: UsageSourceAdapter {
+    nonisolated let sourceIdentifier = "transient-watch-failure"
+    nonisolated let displayName = "Transient Watch Failure"
+    nonisolated let accuracy = UsageAccuracy.exact
+
+    private(set) var watchTargetCount = 0
+
+    func discover() async -> Bool { true }
+    func ingestRecentSessions(now _: Date) async throws {}
+
+    func watchTargets(now _: Date) async throws -> UsageWatchTargets {
+        watchTargetCount += 1
+        if watchTargetCount == 1 {
+            throw TestSourceError.expected
+        }
+        return .empty
+    }
 }
 
 private enum TestSourceError: Error {
