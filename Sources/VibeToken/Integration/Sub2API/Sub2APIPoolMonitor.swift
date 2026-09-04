@@ -194,6 +194,8 @@ actor Sub2APIPoolMonitor {
                     observedAt: observedAt
                 ),
                 quotaStatus: quotaStatus,
+                fiveHourResetAt: snapshot.fiveHourResetAt,
+                sevenDayResetAt: snapshot.sevenDayResetAt,
                 nextRecoveryAt: snapshot.reliableEstimatedRecoveryAt(
                     after: observedAt,
                     staleAfter: staleAfter

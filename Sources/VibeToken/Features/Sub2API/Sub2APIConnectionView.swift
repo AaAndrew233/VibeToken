@@ -19,7 +19,7 @@ struct Sub2APIConnectionView: View {
 
     private enum TableLayout {
         static let planWidth: CGFloat = 52
-        static let quotaWidth: CGFloat = 96
+        static let quotaWidth: CGFloat = 120
         static let multiplierWidth: CGFloat = 72
         static let trailingWidth: CGFloat = planWidth + quotaWidth + multiplierWidth + 16
     }
@@ -58,7 +58,7 @@ struct Sub2APIConnectionView: View {
             }
         }
         .frame(
-            width: state.sub2APIConnection == nil ? 420 : 444,
+            width: state.sub2APIConnection == nil ? 420 : 468,
             height: state.sub2APIConnection == nil ? 350 : 560
         )
         .background(.regularMaterial)
@@ -336,10 +336,7 @@ struct Sub2APIConnectionView: View {
                     )
                     .frame(width: TableLayout.planWidth, alignment: .leading)
 
-                accountQuotaView(
-                    option.quotaStatus,
-                    nextRecoveryAt: option.displayedRecoveryAt
-                )
+                accountQuotaView(option.quotaPresentation)
                     .frame(width: TableLayout.quotaWidth, alignment: .leading)
 
                 if isDetectedPro(option) {
@@ -368,7 +365,7 @@ struct Sub2APIConnectionView: View {
             .frame(width: TableLayout.trailingWidth, alignment: .leading)
         }
         .padding(.horizontal, 12)
-        .frame(minHeight: option.displayedRecoveryAt == nil ? 50 : 62)
+        .frame(minHeight: quotaRowHeight(option.quotaPresentation))
         .background(
             isUnconfiguredPro(option)
                 ? Color.orange.opacity(0.055)
@@ -399,30 +396,32 @@ struct Sub2APIConnectionView: View {
     }
 
     @ViewBuilder
-    private func accountQuotaView(
-        _ status: Sub2APIAccountQuotaStatus,
-        nextRecoveryAt: Date?
-    ) -> some View {
-        switch status {
-        case .current(let fiveHourRemainingPercent, let sevenDayRemainingPercent):
-            VStack(alignment: .leading, spacing: 2) {
+    private func accountQuotaView(_ presentation: Sub2APIAccountQuotaPresentation) -> some View {
+        switch presentation {
+        case .current(
+            let fiveHourRemainingPercent,
+            let sevenDayRemainingPercent,
+            let fiveHourResetAt,
+            let sevenDayResetAt
+        ):
+            VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 5) {
                     quotaInline(label: "5h", remainingPercent: fiveHourRemainingPercent)
                     quotaInline(label: "7d", remainingPercent: sevenDayRemainingPercent)
                 }
-                if let nextRecoveryAt {
-                    Text("\(state.text(.nextRecovery)) \(accountRecoveryText(nextRecoveryAt))")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 1) {
+                    windowResetLine(label: "5h", date: fiveHourResetAt)
+                    windowResetLine(label: "7d", date: sevenDayResetAt)
                 }
             }
             .accessibilityElement(children: .combine)
             .help(
                 "\(state.text(.fiveHourWindow)) \(quotaText(fiveHourRemainingPercent)), "
                     + "\(state.text(.sevenDayWindow)) \(quotaText(sevenDayRemainingPercent))"
-                    + recoveryHelp(nextRecoveryAt)
+                    + resetHelp(
+                        fiveHourResetAt: fiveHourResetAt,
+                        sevenDayResetAt: sevenDayResetAt
+                    )
             )
         case .stale:
             VStack(alignment: .leading, spacing: 2) {
@@ -477,15 +476,24 @@ struct Sub2APIConnectionView: View {
         return .primary
     }
 
-    private func accountRecoveryText(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = state.language == .simplifiedChinese
-            ? Locale(identifier: "zh_Hans_CN")
-            : Locale(identifier: "en_US")
-        formatter.dateFormat = state.language == .simplifiedChinese
-            ? "M/d HH:mm"
-            : "MMM d, HH:mm"
-        return formatter.string(from: date)
+    private func accountResetText(_ date: Date?) -> String {
+        Sub2APIQuotaResetFormatter.string(from: date, language: state.language)
+    }
+
+    private func windowResetLine(label: String, date: Date?) -> some View {
+        Text("\(label) \(state.text(.resetsAt)) \(accountResetText(date))")
+            .font(.system(size: 9, weight: .medium, design: .rounded))
+            .monospacedDigit()
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+    }
+
+    private func resetSummary(
+        fiveHourResetAt: Date?,
+        sevenDayResetAt: Date?
+    ) -> String {
+        "\(state.text(.resetsAt)) 5h \(accountResetText(fiveHourResetAt))"
+            + " · 7d \(accountResetText(sevenDayResetAt))"
     }
 
     private func subscriptionExpiryDateText(_ date: Date) -> String {
@@ -499,9 +507,15 @@ struct Sub2APIConnectionView: View {
         return formatter.string(from: date)
     }
 
-    private func recoveryHelp(_ date: Date?) -> String {
-        guard let date else { return "" }
-        return ", \(state.text(.nextRecovery)) \(accountRecoveryText(date))"
+    private func resetHelp(
+        fiveHourResetAt: Date?,
+        sevenDayResetAt: Date?
+    ) -> String {
+        ", \(resetSummary(fiveHourResetAt: fiveHourResetAt, sevenDayResetAt: sevenDayResetAt))"
+    }
+
+    private func quotaRowHeight(_ presentation: Sub2APIAccountQuotaPresentation) -> CGFloat {
+        presentation.showsResetTimes ? 72 : 50
     }
 
     private func capacitySelectionBinding(

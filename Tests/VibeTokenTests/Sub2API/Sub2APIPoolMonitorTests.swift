@@ -37,7 +37,7 @@ final class Sub2APIPoolMonitorTests: XCTestCase {
         XCTAssertEqual(options.map(\.detectedPlan), ["Pro", "Pro", "Plus", "Plus"])
     }
 
-    func testCapacityOptionsExposeOnlyReliableAccountRecoveryTimes() async throws {
+    func testCapacityOptionsExposeWindowResetTimesIndependentlyFromRecovery() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("VibeTokenRecoveryTests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -55,6 +55,7 @@ final class Sub2APIPoolMonitorTests: XCTestCase {
         let fiveHourReset = now.addingTimeInterval(10 * 60)
         let rateLimitReset = now.addingTimeInterval(15 * 60)
         let sevenDayReset = now.addingTimeInterval(20 * 60)
+        let expiredFiveHourReset = now.addingTimeInterval(-10 * 60)
         let payloads = try [
             decodeRecoveryAccount(
                 id: 1,
@@ -80,7 +81,9 @@ final class Sub2APIPoolMonitorTests: XCTestCase {
             decodeRecoveryAccount(
                 id: 4,
                 fiveHourUsedPercent: 25,
+                fiveHourResetAt: expiredFiveHourReset,
                 sevenDayUsedPercent: 50,
+                sevenDayResetAt: sevenDayReset,
                 usageUpdatedAt: freshTimestamp
             ),
             decodeRecoveryAccount(
@@ -111,19 +114,17 @@ final class Sub2APIPoolMonitorTests: XCTestCase {
         let optionsByID = Dictionary(uniqueKeysWithValues: options.map { ($0.accountID, $0) })
 
         XCTAssertEqual(optionsByID[1]?.nextRecoveryAt, sevenDayReset)
-        XCTAssertNil(optionsByID[1]?.displayedRecoveryAt)
+        XCTAssertEqual(optionsByID[1]?.fiveHourResetAt, fiveHourReset)
+        XCTAssertEqual(optionsByID[1]?.sevenDayResetAt, sevenDayReset)
         XCTAssertEqual(optionsByID[2]?.nextRecoveryAt, rateLimitReset)
-        XCTAssertEqual(optionsByID[2]?.displayedRecoveryAt, rateLimitReset)
         XCTAssertNil(optionsByID[3]?.nextRecoveryAt)
-        XCTAssertNil(optionsByID[3]?.displayedRecoveryAt)
         XCTAssertNil(optionsByID[4]?.nextRecoveryAt)
-        XCTAssertNil(optionsByID[4]?.displayedRecoveryAt)
+        XCTAssertEqual(optionsByID[4]?.fiveHourResetAt, expiredFiveHourReset)
+        XCTAssertEqual(optionsByID[4]?.sevenDayResetAt, sevenDayReset)
         XCTAssertEqual(optionsByID[5]?.quotaStatus, .stale)
         XCTAssertNil(optionsByID[5]?.nextRecoveryAt)
-        XCTAssertNil(optionsByID[5]?.displayedRecoveryAt)
         XCTAssertEqual(optionsByID[6]?.runtimeStatus, .unavailable)
         XCTAssertNil(optionsByID[6]?.nextRecoveryAt)
-        XCTAssertNil(optionsByID[6]?.displayedRecoveryAt)
         XCTAssertFalse(optionsByID[1]?.isAvailableForDisplay ?? true)
         XCTAssertFalse(optionsByID[2]?.isAvailableForDisplay ?? true)
         XCTAssertFalse(optionsByID[3]?.isAvailableForDisplay ?? true)

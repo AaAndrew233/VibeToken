@@ -541,6 +541,8 @@ final class AppState {
                 subscriptionExpiresAt: id == 1 ? now.addingTimeInterval(45 * 24 * 60 * 60) : nil,
                 runtimeStatus: runtimeStatus,
                 quotaStatus: quotaStatus,
+                fiveHourResetAt: now.addingTimeInterval(TimeInterval(id) * 15 * 60),
+                sevenDayResetAt: now.addingTimeInterval(TimeInterval(id) * 24 * 60 * 60),
                 nextRecoveryAt: nextRecoveryAt
             )
         }

@@ -68,12 +68,18 @@ struct Sub2APIAccountCapacityOption: Identifiable, Equatable, Sendable {
     let subscriptionExpiresAt: Date?
     let runtimeStatus: Sub2APIAccountRuntimeStatus
     let quotaStatus: Sub2APIAccountQuotaStatus
+    let fiveHourResetAt: Date?
+    let sevenDayResetAt: Date?
     let nextRecoveryAt: Date?
 
     var id: Int64 { accountID }
 
-    var displayedRecoveryAt: Date? {
-        runtimeStatus == .rateLimited ? nextRecoveryAt : nil
+    var quotaPresentation: Sub2APIAccountQuotaPresentation {
+        Sub2APIAccountQuotaPresentation(
+            status: quotaStatus,
+            fiveHourResetAt: fiveHourResetAt,
+            sevenDayResetAt: sevenDayResetAt
+        )
     }
 
     var isAvailableForDisplay: Bool {
@@ -113,6 +119,59 @@ struct Sub2APIAccountCapacityOption: Identifiable, Equatable, Sendable {
                 }
             }
             .map(\.element)
+    }
+}
+
+enum Sub2APIAccountQuotaPresentation: Equatable, Sendable {
+    case current(
+        fiveHourRemainingPercent: Double,
+        sevenDayRemainingPercent: Double,
+        fiveHourResetAt: Date?,
+        sevenDayResetAt: Date?
+    )
+    case stale
+    case unobserved
+
+    init(
+        status: Sub2APIAccountQuotaStatus,
+        fiveHourResetAt: Date?,
+        sevenDayResetAt: Date?
+    ) {
+        switch status {
+        case .current(let fiveHourRemainingPercent, let sevenDayRemainingPercent):
+            self = .current(
+                fiveHourRemainingPercent: fiveHourRemainingPercent,
+                sevenDayRemainingPercent: sevenDayRemainingPercent,
+                fiveHourResetAt: fiveHourResetAt,
+                sevenDayResetAt: sevenDayResetAt
+            )
+        case .stale:
+            self = .stale
+        case .unobserved:
+            self = .unobserved
+        }
+    }
+
+    var showsResetTimes: Bool {
+        if case .current = self { return true }
+        return false
+    }
+}
+
+enum Sub2APIQuotaResetFormatter {
+    static func string(
+        from date: Date?,
+        language: AppLanguage,
+        timeZone: TimeZone = .current
+    ) -> String {
+        guard let date else { return "--" }
+        let formatter = DateFormatter()
+        formatter.locale = language == .simplifiedChinese
+            ? Locale(identifier: "zh_Hans_CN")
+            : Locale(identifier: "en_US")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "M/d HH:mm"
+        return formatter.string(from: date)
     }
 }
 
