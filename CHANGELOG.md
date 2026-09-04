@@ -2,9 +2,12 @@
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-09-04
+
 ### Changed
 
 - Reduced background filesystem work in live refresh mode by using file events for immediate updates, extending the fallback scan to 60 seconds, coalescing burst writes, and caching source discovery and watch targets.
+- Account quota rows now show the 5-hour and 7-day reset times below their remaining balances regardless of balance or whether a reset timestamp has passed.
 
 ## [0.1.4] - 2026-08-24
 
