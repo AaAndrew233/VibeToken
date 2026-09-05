@@ -1,15 +1,25 @@
 import Foundation
 
+enum PricingContext: String, Equatable, Sendable {
+    case short
+    case long
+
+    static let longContextThresholdTokens: Int64 = 272_000
+}
+
 struct TokenPriceRate: Equatable, Sendable {
     let inputMicrosPerMillion: Int64
     let outputMicrosPerMillion: Int64
     let cachedInputMicrosPerMillion: Int64?
+    let cacheWriteInputMicrosPerMillion: Int64?
 }
 
 struct ModelPricingRule: Equatable, Sendable {
     let canonicalModel: String
     let standardRate: TokenPriceRate
+    let longContextRate: TokenPriceRate?
     let tierRates: [String: TokenPriceRate]
+    let longContextTierRates: [String: TokenPriceRate]
     let effectiveFrom: Date?
     let effectiveUntil: Date?
 }

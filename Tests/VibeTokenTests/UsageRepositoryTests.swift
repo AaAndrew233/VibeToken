@@ -51,6 +51,77 @@ final class UsageRepositoryTests: XCTestCase {
         XCTAssertEqual(eventCount, 3)
     }
 
+    func testSeparatesPricingContextsWithoutSplittingDisplayedModelTotals() throws {
+        let database = try VibeTokenDatabase.inMemory()
+        let repository = UsageRepository(database: database)
+        let now = Date(timeIntervalSince1970: 2_500_000)
+        let shortCounters = TokenUsageCounters(
+            inputTokens: PricingContext.longContextThresholdTokens,
+            cachedInputTokens: 0,
+            cacheWriteTokens: 0,
+            outputTokens: 0,
+            reasoningTokens: 0,
+            totalTokens: PricingContext.longContextThresholdTokens
+        )
+        let longCounters = TokenUsageCounters(
+            inputTokens: PricingContext.longContextThresholdTokens + 1,
+            cachedInputTokens: 0,
+            cacheWriteTokens: 0,
+            outputTokens: 0,
+            reasoningTokens: 0,
+            totalTokens: PricingContext.longContextThresholdTokens + 1
+        )
+        let batch = CodexParseBatch(
+            events: [
+                CodexUsageEvent(
+                    idempotencyKey: "short",
+                    sessionIdentifier: "context-pricing",
+                    model: "gpt-6-astra",
+                    occurredAt: now.addingTimeInterval(-1),
+                    counters: shortCounters
+                ),
+                CodexUsageEvent(
+                    idempotencyKey: "long",
+                    sessionIdentifier: "context-pricing",
+                    model: "gpt-6-astra",
+                    occurredAt: now,
+                    counters: longCounters
+                )
+            ],
+            nextState: CodexParserState(
+                byteOffset: 500,
+                currentModel: "gpt-6-astra",
+                lastCumulative: longCounters
+            ),
+            latestSnapshot: nil
+        )
+        try repository.persist(
+            batch: batch,
+            fileIdentity: "context-pricing",
+            canonicalPathHash: "context-pricing-path",
+            sourceDisplayName: "Codex"
+        )
+
+        let result = try repository.aggregate(
+            source: "codex",
+            from: now.addingTimeInterval(-60),
+            through: now
+        )
+        let byContext = Dictionary(uniqueKeysWithValues: result.pricingSnapshots.map {
+            ($0.pricingContext, $0)
+        })
+        let estimate = try XCTUnwrap(
+            CostEstimator(catalog: .officialAPI).estimate(for: result.pricingSnapshots)
+        )
+
+        XCTAssertEqual(result.modelSnapshots.count, 1)
+        XCTAssertEqual(result.modelSnapshots.first?.model, "gpt-6-astra")
+        XCTAssertEqual(result.modelSnapshots.first?.totalTokens, 544_001)
+        XCTAssertEqual(byContext[.short]?.inputTokens, 272_000)
+        XCTAssertEqual(byContext[.long]?.inputTokens, 272_001)
+        XCTAssertEqual(estimate.micros, 8_160_020)
+    }
+
     func testAggregatesModelAndToolBreakdownsAcrossSources() throws {
         let database = try VibeTokenDatabase.inMemory()
         let repository = UsageRepository(database: database)

@@ -476,6 +476,8 @@ struct UsageRepository: Sendable {
                     SELECT conversations.source_id AS source_id,
                            usage_sources.display_name AS source_display_name,
                            usage_events.model_id AS model_id,
+                           CASE WHEN input_tokens + cached_input_tokens + cache_write_tokens > ?
+                               THEN 'long' ELSE 'short' END AS pricing_context,
                            SUM(input_tokens) AS input_tokens,
                            SUM(cached_input_tokens) AS cached_input_tokens,
                            SUM(cache_write_tokens) AS cache_write_tokens,
@@ -497,10 +499,18 @@ struct UsageRepository: Sendable {
                     JOIN usage_sources ON usage_sources.id = conversations.source_id
                     WHERE (? IS NULL OR conversations.source_id = ?)
                       AND occurred_at >= ? AND occurred_at <= ?
-                    GROUP BY conversations.source_id, usage_sources.display_name, usage_events.model_id
-                    ORDER BY total_tokens DESC, conversations.source_id, usage_events.model_id
+                    GROUP BY conversations.source_id, usage_sources.display_name,
+                             usage_events.model_id, pricing_context
+                    ORDER BY total_tokens DESC, conversations.source_id,
+                             usage_events.model_id, pricing_context
                     """,
-                arguments: [source, source, startDate, endDate]
+                arguments: [
+                    PricingContext.longContextThresholdTokens,
+                    source,
+                    source,
+                    startDate,
+                    endDate
+                ]
             )
             let sessionCount = try Int.fetchOne(
                 database,
@@ -514,7 +524,7 @@ struct UsageRepository: Sendable {
                 arguments: [source, source, startDate, endDate]
             ) ?? 0
 
-            let sourceModelSnapshots = rows.map { row in
+            let pricingSnapshots = rows.map { row in
                 let sourceIdentifier: String = row["source_id"]
                 return TokenUsageSnapshot(
                     source: sourceIdentifier,
@@ -527,12 +537,17 @@ struct UsageRepository: Sendable {
                     reasoningTokens: row["reasoning_tokens"],
                     totalTokens: row["total_tokens"],
                     recordedAt: row["recorded_at"],
-                    accuracy: Self.accuracy(row["accuracy"])
+                    accuracy: Self.accuracy(row["accuracy"]),
+                    pricingContext: PricingContext(rawValue: row["pricing_context"]) ?? .short
                 )
             }
+            let sourceModelSnapshots = Dictionary(grouping: pricingSnapshots, by: \.source)
+                .flatMap { sourceIdentifier, snapshots in
+                    Self.combineByModel(snapshots, aggregateSource: sourceIdentifier)
+                }
             let aggregateSource = source ?? "all"
             let modelSnapshots = Self.combineByModel(
-                sourceModelSnapshots,
+                pricingSnapshots,
                 aggregateSource: aggregateSource
             )
             guard !modelSnapshots.isEmpty else { return .empty }
@@ -587,6 +602,7 @@ struct UsageRepository: Sendable {
             return UsageAggregation(
                 snapshot: aggregateSnapshot,
                 modelSnapshots: modelSnapshots,
+                pricingSnapshots: pricingSnapshots,
                 sourceBreakdowns: sourceBreakdowns,
                 sessionCount: sessionCount
             )
@@ -613,7 +629,7 @@ struct UsageRepository: Sendable {
                     index == intervals.indices.last ? 1 : 0
                 ]
             }
-            arguments += [source, source]
+            arguments += [PricingContext.longContextThresholdTokens, source, source]
 
             let rows = try Row.fetchAll(
                 database,
@@ -623,6 +639,8 @@ struct UsageRepository: Sendable {
                     )
                     SELECT buckets.bucket_index AS bucket_index,
                            usage_events.model_id AS model_id,
+                           CASE WHEN input_tokens + cached_input_tokens + cache_write_tokens > ?
+                               THEN 'long' ELSE 'short' END AS pricing_context,
                            SUM(input_tokens) AS input_tokens,
                            SUM(cached_input_tokens) AS cached_input_tokens,
                            SUM(cache_write_tokens) AS cache_write_tokens,
@@ -648,8 +666,9 @@ struct UsageRepository: Sendable {
                      )
                     JOIN conversations ON conversations.id = usage_events.conversation_id
                     WHERE (? IS NULL OR conversations.source_id = ?)
-                    GROUP BY buckets.bucket_index, usage_events.model_id
-                    ORDER BY buckets.bucket_index, total_tokens DESC, usage_events.model_id
+                    GROUP BY buckets.bucket_index, usage_events.model_id, pricing_context
+                    ORDER BY buckets.bucket_index, total_tokens DESC,
+                             usage_events.model_id, pricing_context
                     """,
                 arguments: arguments
             )
@@ -670,7 +689,8 @@ struct UsageRepository: Sendable {
                         reasoningTokens: row["reasoning_tokens"],
                         totalTokens: row["total_tokens"],
                         recordedAt: row["recorded_at"],
-                        accuracy: Self.accuracy(row["accuracy"])
+                        accuracy: Self.accuracy(row["accuracy"]),
+                        pricingContext: PricingContext(rawValue: row["pricing_context"]) ?? .short
                     )
                 }
                 return UsageTrendBucket(

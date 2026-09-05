@@ -707,8 +707,16 @@ final class AppState {
             snapshot = aggregation.snapshot
             sessionCount = aggregation.sessionCount
             modelCount = aggregation.modelSnapshots.count
+            let pricingSnapshotsByModel = Dictionary(grouping: aggregation.pricingSnapshots) {
+                $0.model ?? ""
+            }
+            let pricingSnapshotsBySource = Dictionary(
+                grouping: aggregation.pricingSnapshots,
+                by: \.source
+            )
             modelDistribution = aggregation.modelSnapshots.map { snapshot in
-                let estimate = costEstimator.estimate(for: snapshot)?.amount
+                let pricingSnapshots = pricingSnapshotsByModel[snapshot.model ?? ""] ?? [snapshot]
+                let estimate = costEstimator.estimate(for: pricingSnapshots)
                 return UsageDistributionItem(
                     id: snapshot.model ?? "unknown-model",
                     displayName: displayName(forModel: snapshot.model),
@@ -718,7 +726,9 @@ final class AppState {
                 )
             }
             toolDistribution = aggregation.sourceBreakdowns.map { breakdown in
-                let estimates = breakdown.modelSnapshots.compactMap {
+                let pricingSnapshots = pricingSnapshotsBySource[breakdown.sourceIdentifier]
+                    ?? breakdown.modelSnapshots
+                let estimates = pricingSnapshots.compactMap {
                     costEstimator.estimate(for: $0)?.amount
                 }
                 return UsageDistributionItem(
@@ -728,10 +738,10 @@ final class AppState {
                         saturatingAdd($0, $1.totalTokens)
                     },
                     estimatedCost: sum(estimates),
-                    isCostComplete: estimates.count == breakdown.modelSnapshots.count
+                    isCostComplete: estimates.count == pricingSnapshots.count
                 )
             }
-            let costCoverage = costEstimator.estimateKnown(for: aggregation.modelSnapshots)
+            let costCoverage = costEstimator.estimateKnown(for: aggregation.pricingSnapshots)
             estimatedCost = costCoverage?.amount
             costCoveragePercentage = costCoverage?.coveragePercentage
             isCostEstimateComplete = costCoverage?.isComplete ?? false

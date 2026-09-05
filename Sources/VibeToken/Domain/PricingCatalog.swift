@@ -26,11 +26,16 @@ struct PricingCatalog: Sendable {
         self.aliases = aliases
     }
 
-    func match(model rawModel: String, at date: Date) -> MatchedModelPricing? {
+    func match(
+        model rawModel: String,
+        at date: Date,
+        context: PricingContext = .short
+    ) -> MatchedModelPricing? {
         var normalizedModel = Self.normalize(rawModel)
         var tier: String?
 
-        for candidateTier in ["priority", "flex", "batch"] where normalizedModel.hasSuffix("-\(candidateTier)") {
+        for candidateTier in ["priority", "fast", "flex", "batch"]
+        where normalizedModel.hasSuffix("-\(candidateTier)") {
             normalizedModel.removeLast(candidateTier.count + 1)
             tier = candidateTier
             break
@@ -42,11 +47,26 @@ struct PricingCatalog: Sendable {
             let isBeforeEnd = rule.effectiveUntil.map { date < $0 } ?? true
             return isAfterStart && isBeforeEnd
         }) else { return nil }
-        let rate = tier.flatMap { rule.tierRates[$0] } ?? rule.standardRate
+        let matchedTier = tier.flatMap { candidate in
+            rule.tierRates[candidate] != nil || rule.longContextTierRates[candidate] != nil
+                ? candidate
+                : nil
+        }
+        let rate: TokenPriceRate
+        if let matchedTier {
+            rate = context == .long
+                ? rule.longContextTierRates[matchedTier]
+                    ?? rule.tierRates[matchedTier]
+                    ?? rule.longContextRate
+                    ?? rule.standardRate
+                : rule.tierRates[matchedTier] ?? rule.standardRate
+        } else {
+            rate = context == .long ? rule.longContextRate ?? rule.standardRate : rule.standardRate
+        }
 
         return MatchedModelPricing(
             canonicalModel: canonicalModel,
-            tier: tier.flatMap { rule.tierRates[$0] == nil ? nil : $0 },
+            tier: matchedTier,
             rate: rate,
             catalogVersion: version
         )
@@ -61,15 +81,15 @@ struct PricingCatalog: Sendable {
 
 extension PricingCatalog {
     static let officialAPI = PricingCatalog(
-        version: "official-api-2026-08-07-v1",
-        verifiedAt: Date(timeIntervalSince1970: 1_786_060_800),
+        version: "official-api-2026-09-05-v2",
+        verifiedAt: Date(timeIntervalSince1970: 1_788_566_400),
         sourceURLs: [
             "https://developers.openai.com/api/docs/pricing/",
             "https://platform.claude.com/docs/en/about-claude/pricing",
             "https://ai.google.dev/gemini-api/docs/pricing"
         ],
         rules: [
-            // OpenAI / Codex. Long-context premiums are not applied to aggregated local usage.
+            // OpenAI / Codex. GPT-6 and GPT-5.6 use per-request context pricing.
             rule("gpt-5", 1_250_000, 10_000_000, 125_000),
             rule("gpt-5-mini", 250_000, 2_000_000, 25_000),
             rule("gpt-5-nano", 50_000, 400_000, 5_000),
@@ -89,38 +109,41 @@ extension PricingCatalog {
                     "flex": rate(2_500_000, 15_000_000, 250_000)
                 ]
             ),
-            rule(
+            contextPricedRule(
+                "gpt-6-astra",
+                standardShort: rate(10_000_000, 50_000_000, 1_000_000, 12_500_000),
+                standardLong: rate(20_000_000, 75_000_000, 2_000_000, 25_000_000),
+                flexShort: rate(5_000_000, 25_000_000, 500_000, 6_250_000),
+                flexLong: rate(10_000_000, 37_500_000, 1_000_000, 12_500_000),
+                fastShort: rate(20_000_000, 100_000_000, 2_000_000, 25_000_000),
+                fastLong: rate(40_000_000, 150_000_000, 4_000_000, 50_000_000)
+            ),
+            contextPricedRule(
                 "gpt-5.6-sol",
-                5_000_000,
-                30_000_000,
-                500_000,
-                tiers: [
-                    "priority": rate(10_000_000, 60_000_000, 1_000_000),
-                    "flex": rate(2_500_000, 15_000_000, 250_000),
-                    "batch": rate(2_500_000, 15_000_000, 250_000)
-                ]
+                standardShort: rate(4_000_000, 20_000_000, 400_000, 5_000_000),
+                standardLong: rate(8_000_000, 30_000_000, 800_000, 10_000_000),
+                flexShort: rate(2_000_000, 10_000_000, 200_000, 2_500_000),
+                flexLong: rate(4_000_000, 15_000_000, 400_000, 5_000_000),
+                fastShort: rate(8_000_000, 40_000_000, 800_000, 10_000_000),
+                fastLong: rate(16_000_000, 60_000_000, 1_600_000, 20_000_000)
             ),
-            rule(
+            contextPricedRule(
                 "gpt-5.6-terra",
-                2_000_000,
-                12_000_000,
-                200_000,
-                tiers: [
-                    "priority": rate(4_000_000, 24_000_000, 400_000),
-                    "flex": rate(1_000_000, 6_000_000, 100_000),
-                    "batch": rate(1_000_000, 6_000_000, 100_000)
-                ]
+                standardShort: rate(2_000_000, 12_000_000, 200_000, 2_500_000),
+                standardLong: rate(4_000_000, 18_000_000, 400_000, 5_000_000),
+                flexShort: rate(1_000_000, 6_000_000, 100_000, 1_250_000),
+                flexLong: rate(2_000_000, 9_000_000, 200_000, 2_500_000),
+                fastShort: rate(4_000_000, 24_000_000, 400_000, 5_000_000),
+                fastLong: rate(8_000_000, 36_000_000, 800_000, 10_000_000)
             ),
-            rule(
+            contextPricedRule(
                 "gpt-5.6-luna",
-                200_000,
-                1_200_000,
-                20_000,
-                tiers: [
-                    "priority": rate(400_000, 2_400_000, 40_000),
-                    "flex": rate(100_000, 600_000, 10_000),
-                    "batch": rate(100_000, 600_000, 10_000)
-                ]
+                standardShort: rate(200_000, 1_200_000, 20_000, 250_000),
+                standardLong: rate(400_000, 1_800_000, 40_000, 500_000),
+                flexShort: rate(100_000, 600_000, 10_000, 125_000),
+                flexLong: rate(200_000, 900_000, 20_000, 250_000),
+                fastShort: rate(400_000, 2_400_000, 40_000, 500_000),
+                fastLong: rate(800_000, 3_600_000, 80_000, 1_000_000)
             ),
             rule("gpt-5.5-codex", 2_500_000, 15_000_000, 250_000),
             rule("gpt-5.4-codex", 2_500_000, 15_000_000, 250_000),
@@ -175,6 +198,7 @@ extension PricingCatalog {
             rule("gemini-2-0-flash-lite", 75_000, 300_000, nil)
         ],
         aliases: [
+            "gpt-6": "gpt-6-astra",
             "gpt-5.6": "gpt-5.6-sol",
             "gpt-5-6": "gpt-5.6-sol",
             "gpt-5-6-sol": "gpt-5.6-sol",
@@ -215,28 +239,65 @@ extension PricingCatalog {
         _ input: Int64,
         _ output: Int64,
         _ cachedInput: Int64?,
+        cacheWriteInput: Int64? = nil,
         tiers: [String: TokenPriceRate] = [:],
+        longContextRate: TokenPriceRate? = nil,
+        longContextTierRates: [String: TokenPriceRate] = [:],
         effectiveFrom: Date? = nil,
         effectiveUntil: Date? = nil
     ) -> ModelPricingRule {
         ModelPricingRule(
             canonicalModel: model,
-            standardRate: rate(input, output, cachedInput),
+            standardRate: rate(input, output, cachedInput, cacheWriteInput),
+            longContextRate: longContextRate,
             tierRates: tiers,
+            longContextTierRates: longContextTierRates,
             effectiveFrom: effectiveFrom,
             effectiveUntil: effectiveUntil
+        )
+    }
+
+    private static func contextPricedRule(
+        _ model: String,
+        standardShort: TokenPriceRate,
+        standardLong: TokenPriceRate,
+        flexShort: TokenPriceRate,
+        flexLong: TokenPriceRate,
+        fastShort: TokenPriceRate,
+        fastLong: TokenPriceRate
+    ) -> ModelPricingRule {
+        ModelPricingRule(
+            canonicalModel: model,
+            standardRate: standardShort,
+            longContextRate: standardLong,
+            tierRates: [
+                "batch": flexShort,
+                "flex": flexShort,
+                "fast": fastShort,
+                "priority": fastShort
+            ],
+            longContextTierRates: [
+                "batch": flexLong,
+                "flex": flexLong,
+                "fast": fastLong,
+                "priority": fastLong
+            ],
+            effectiveFrom: nil,
+            effectiveUntil: nil
         )
     }
 
     private static func rate(
         _ input: Int64,
         _ output: Int64,
-        _ cachedInput: Int64?
+        _ cachedInput: Int64?,
+        _ cacheWriteInput: Int64? = nil
     ) -> TokenPriceRate {
         TokenPriceRate(
             inputMicrosPerMillion: input,
             outputMicrosPerMillion: output,
-            cachedInputMicrosPerMillion: cachedInput
+            cachedInputMicrosPerMillion: cachedInput,
+            cacheWriteInputMicrosPerMillion: cacheWriteInput
         )
     }
 }

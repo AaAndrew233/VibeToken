@@ -5,16 +5,21 @@ struct CostEstimator: Sendable {
 
     func estimate(for snapshot: TokenUsageSnapshot) -> CostEstimate? {
         guard let model = snapshot.model,
-              let pricing = catalog.match(model: model, at: snapshot.recordedAt) else {
+              let pricing = catalog.match(
+                  model: model,
+                  at: snapshot.recordedAt,
+                  context: snapshot.pricingContext
+              ) else {
             return nil
         }
 
         let rate = pricing.rate
         let cachedRate = rate.cachedInputMicrosPerMillion ?? rate.inputMicrosPerMillion
+        let cacheWriteRate = rate.cacheWriteInputMicrosPerMillion ?? rate.inputMicrosPerMillion
 
         // 分项转换为 Decimal，避免极端 Token 数在 Int64 预相加时溢出。
         var amountMicros = Decimal(max(0, snapshot.inputTokens)) * Decimal(rate.inputMicrosPerMillion)
-        amountMicros += Decimal(max(0, snapshot.cacheWriteTokens)) * Decimal(rate.inputMicrosPerMillion)
+        amountMicros += Decimal(max(0, snapshot.cacheWriteTokens)) * Decimal(cacheWriteRate)
         amountMicros += Decimal(max(0, snapshot.outputTokens)) * Decimal(rate.outputMicrosPerMillion)
         amountMicros += Decimal(max(0, snapshot.reasoningTokens)) * Decimal(rate.outputMicrosPerMillion)
         amountMicros += Decimal(max(0, snapshot.cachedInputTokens)) * Decimal(cachedRate)

@@ -12,6 +12,35 @@ struct TokenUsageSnapshot: Equatable, Sendable {
     let totalTokens: Int64
     let recordedAt: Date
     let accuracy: UsageAccuracy
+    let pricingContext: PricingContext
+
+    init(
+        source: String,
+        model: String?,
+        sessionIdentifier: String,
+        inputTokens: Int64,
+        cachedInputTokens: Int64,
+        cacheWriteTokens: Int64,
+        outputTokens: Int64,
+        reasoningTokens: Int64,
+        totalTokens: Int64,
+        recordedAt: Date,
+        accuracy: UsageAccuracy,
+        pricingContext: PricingContext = .short
+    ) {
+        self.source = source
+        self.model = model
+        self.sessionIdentifier = sessionIdentifier
+        self.inputTokens = inputTokens
+        self.cachedInputTokens = cachedInputTokens
+        self.cacheWriteTokens = cacheWriteTokens
+        self.outputTokens = outputTokens
+        self.reasoningTokens = reasoningTokens
+        self.totalTokens = totalTokens
+        self.recordedAt = recordedAt
+        self.accuracy = accuracy
+        self.pricingContext = pricingContext
+    }
 
     static let empty = TokenUsageSnapshot(
         source: "codex",

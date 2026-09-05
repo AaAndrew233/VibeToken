@@ -85,12 +85,28 @@ enum UsageDistributionBuilder {
 struct UsageAggregation: Equatable, Sendable {
     let snapshot: TokenUsageSnapshot?
     let modelSnapshots: [TokenUsageSnapshot]
+    let pricingSnapshots: [TokenUsageSnapshot]
     let sourceBreakdowns: [UsageSourceBreakdown]
     let sessionCount: Int
+
+    init(
+        snapshot: TokenUsageSnapshot?,
+        modelSnapshots: [TokenUsageSnapshot],
+        pricingSnapshots: [TokenUsageSnapshot]? = nil,
+        sourceBreakdowns: [UsageSourceBreakdown],
+        sessionCount: Int
+    ) {
+        self.snapshot = snapshot
+        self.modelSnapshots = modelSnapshots
+        self.pricingSnapshots = pricingSnapshots ?? modelSnapshots
+        self.sourceBreakdowns = sourceBreakdowns
+        self.sessionCount = sessionCount
+    }
 
     static let empty = UsageAggregation(
         snapshot: nil,
         modelSnapshots: [],
+        pricingSnapshots: [],
         sourceBreakdowns: [],
         sessionCount: 0
     )

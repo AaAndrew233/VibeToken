@@ -74,7 +74,7 @@ final class UsageTrendTests: XCTestCase {
                     ) VALUES
                         ('first-sol', 'codex:test', ?, 'gpt-5.6-sol', 1000000, 0, 0, 0, 0, 1000000, 'exact'),
                         ('first-terra', 'codex:test', ?, 'gpt-5.6-terra', 1000000, 0, 0, 0, 0, 1000000, 'exact'),
-                        ('last-sol', 'codex:test', ?, 'gpt-5.6-sol', 500000, 0, 0, 0, 0, 500000, 'exact')
+                        ('last-sol', 'codex:test', ?, 'gpt-5.6-sol', 200000, 0, 0, 0, 0, 200000, 'exact')
                     """,
                 arguments: [
                     start.addingTimeInterval(60),
@@ -96,8 +96,8 @@ final class UsageTrendTests: XCTestCase {
 
         XCTAssertEqual(series.buckets.count, 3)
         XCTAssertEqual(series.buckets.map(\.modelSnapshots.count), [2, 0, 1])
-        XCTAssertEqual(points.map(\.totalTokens), [2_000_000, 0, 500_000])
-        XCTAssertEqual(points.map { $0.estimatedCost?.micros }, [7_000_000, nil, 2_500_000])
+        XCTAssertEqual(points.map(\.totalTokens), [2_000_000, 0, 200_000])
+        XCTAssertEqual(points.map { $0.estimatedCost?.micros }, [12_000_000, nil, 800_000])
         XCTAssertTrue(points.allSatisfy(\.isCostComplete))
     }
 
