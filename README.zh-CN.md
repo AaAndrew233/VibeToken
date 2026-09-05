@@ -25,7 +25,7 @@
 VibeToken 面向高频使用 AI 编程工具的开发者，在一个菜单栏弹框中快速查看真实本地用量，不必反复打开多个后台页面。
 
 > [!NOTE]
-> 当前为早期预览版，已支持 22 个 AI 编程数据源。当前版本是 [v0.1.5 Preview](https://github.com/AaAndrew233/VibeToken/releases/tag/v0.1.5)。GitHub Releases 提供可下载安装包，但安装包尚未经过 Apple 公证。
+> 当前为早期预览版，已支持 22 个 AI 编程数据源。当前版本是 [v0.1.6 Preview](https://github.com/AaAndrew233/VibeToken/releases/tag/v0.1.6)。GitHub Releases 提供可下载安装包，但安装包尚未经过 Apple 公证。
 
 ## 界面预览
 
@@ -99,7 +99,7 @@ open "dist/VibeToken.app"
 
 ### 发布说明
 
-- 当前版本：[v0.1.5 Preview](https://github.com/AaAndrew233/VibeToken/releases/tag/v0.1.5)。
+- 当前版本：[v0.1.6 Preview](https://github.com/AaAndrew233/VibeToken/releases/tag/v0.1.6)。
 - 面向用户分享时，使用 GitHub Releases 中的版本化安装包和校验文件，不要直接分享整个开发目录。
 - 当前安装包使用 ad-hoc 签名且未经过 Apple 公证，其他 Mac 可能显示 Gatekeeper 安全提示。
 - 面向普通用户正式发布时，应使用 Developer ID 签名、Apple 公证和带版本号的压缩包或 DMG。
@@ -119,16 +119,16 @@ Token 来自结构化用量字段。Kiro CLI 是例外：其原生会话日志�
 
 ```text
 预计费用 = 输入 * 输入单价
-         + 缓存写入 * 输入单价
+         + 缓存写入 * 缓存写入单价
          + 缓存读取 * 缓存单价
          +（输出 + 推理）* 输出单价
 ```
 
 未知模型不会套用猜测价格。历史用量目前按已安装版本内置的价格目录回算。
 
-内置价格目录会记录核对日期、生效日期和 OpenAI、Anthropic、Google 官方来源地址。用量快照会按其中最近一条事件的时间选择限时价格，例如 Claude Sonnet 5 会在 2026 年 9 月 1 日结束首发价格；跨越价格切换日的统计区间仍是聚合估算，不是逐事件账单。OpenCode 的模型标识能够识别时，会自动复用对应供应商的价格。
+内置价格目录会记录核对日期、生效日期和 OpenAI、Anthropic、Google 官方来源地址，并包含 GPT-6 Astra 与最新 GPT-5.6 系列价格。对于这些模型，每条用量事件的总输入 Token 超过 272K 时采用官方长上下文价格，否则采用短上下文价格；模型标识以 `-flex`、`-batch`、`-fast` 或 `-priority` 结尾时采用对应的官方处理档位价格。用量快照也会按其中最近一条事件的时间选择限时价格，例如 Claude Sonnet 5 会在 2026 年 9 月 1 日结束首发价格；跨越价格切换日的统计区间仍是聚合估算，不是逐事件账单。OpenCode 的模型标识能够识别时，会自动复用对应供应商的价格。
 
-缓存写入按普通输入价格计算。由于聚合后的本地日志无法可靠保留这些计费维度，当前不套用单次请求的长上下文阶梯，也不计算 Gemini 缓存存储时长。订阅套餐、免费额度、供应商折扣、税费和工具调用费用同样不包含在内。模型没有匹配到内置价格时，Token 仍会正常统计，界面会明确显示费用覆盖不完整或暂无定价，不会虚构单价。
+模型提供独立缓存写入价格时按官方缓存写入价格计算，旧价格条目没有该字段时回退到普通输入价格。当前仍不计算 Gemini 缓存存储时长、区域处理加价、订阅套餐、免费额度、供应商折扣、税费和工具调用费用。模型没有匹配到内置价格时，Token 仍会正常统计，界面会明确显示费用覆盖不完整或暂无定价，不会虚构单价。
 
 价格来源：[OpenAI](https://developers.openai.com/api/docs/pricing/)、[Anthropic](https://platform.claude.com/docs/en/about-claude/pricing)、[Google Gemini](https://ai.google.dev/gemini-api/docs/pricing)。
 

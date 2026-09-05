@@ -25,7 +25,7 @@
 VibeToken is built for developers who use AI coding tools throughout the day and want one quick, honest view of local usage without opening multiple dashboards.
 
 > [!NOTE]
-> This is an early preview with twenty-two supported AI coding sources. The current release is [v0.1.5 Preview](https://github.com/AaAndrew233/VibeToken/releases/tag/v0.1.5). Downloadable builds are available from GitHub Releases, but they are not yet Apple-notarized.
+> This is an early preview with twenty-two supported AI coding sources. The current release is [v0.1.6 Preview](https://github.com/AaAndrew233/VibeToken/releases/tag/v0.1.6). Downloadable builds are available from GitHub Releases, but they are not yet Apple-notarized.
 
 ## Preview
 
@@ -99,7 +99,7 @@ The build script creates an ad-hoc signed app at `dist/VibeToken.app`. It is sui
 
 ### Release status
 
-- Current release: [v0.1.5 Preview](https://github.com/AaAndrew233/VibeToken/releases/tag/v0.1.5).
+- Current release: [v0.1.6 Preview](https://github.com/AaAndrew233/VibeToken/releases/tag/v0.1.6).
 - For end-user distribution, use the versioned archive and checksum published on GitHub Releases. Do not share the entire development folder.
 - The current archive is ad-hoc signed and not notarized, so another Mac may show a Gatekeeper warning.
 - A public end-user release should use Developer ID signing, Apple notarization, and a versioned archive or DMG.
@@ -120,16 +120,16 @@ Token totals come from structured usage fields. Kiro CLI is the exception: its n
 
 ```text
 estimated cost = input * input price
-               + cache write * input price
+               + cache write * cache-write price
                + cache read * cache price
                + (output + reasoning) * output price
 ```
 
 Unknown models remain unpriced instead of receiving a guessed fallback price. Historical usage is currently recalculated with the price catalog bundled in the installed app.
 
-The bundled catalog records its verification date, effective dates, and official OpenAI, Anthropic, and Google source URLs. A usage snapshot selects time-limited pricing from its latest event timestamp; for example, Claude Sonnet 5 switches from its introductory price on September 1, 2026. A range that crosses a price-change boundary therefore remains an aggregate estimate rather than an invoice-grade event-by-event calculation. OpenCode reuses the matching provider price when its model identifier is recognized.
+The bundled catalog records its verification date, effective dates, and official OpenAI, Anthropic, and Google source URLs. It includes GPT-6 Astra and the current GPT-5.6 family prices. For these models, each usage event with more than 272K total input tokens uses the official long-context rate; shorter events use the short-context rate. Model identifiers ending in `-flex`, `-batch`, `-fast`, or `-priority` use the corresponding official processing-tier price. A usage snapshot also selects time-limited pricing from its latest event timestamp; for example, Claude Sonnet 5 switches from its introductory price on September 1, 2026. A range that crosses a price-change boundary therefore remains an aggregate estimate rather than an invoice-grade event-by-event calculation. OpenCode reuses the matching provider price when its model identifier is recognized.
 
-Cache writes use the normal input price. The current estimator does not apply per-request long-context premiums or Gemini cache-storage time because aggregated local logs do not preserve those billing dimensions reliably. Subscription plans, free tiers, provider discounts, taxes, and tool-call charges are also excluded. Token usage is still counted when a model has no matching bundled price; the UI marks the cost as partial or unavailable instead of inventing a rate.
+Cache writes use the official cache-write price when the model publishes one, otherwise they fall back to the normal input price for compatibility with older catalog entries. The current estimator does not calculate Gemini cache-storage time, regional-processing uplifts, subscription plans, free tiers, provider discounts, taxes, or tool-call charges. Token usage is still counted when a model has no matching bundled price; the UI marks the cost as partial or unavailable instead of inventing a rate.
 
 Pricing sources: [OpenAI](https://developers.openai.com/api/docs/pricing/), [Anthropic](https://platform.claude.com/docs/en/about-claude/pricing), and [Google Gemini](https://ai.google.dev/gemini-api/docs/pricing).
 

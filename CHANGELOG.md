@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-09-05
+
+### Changed
+
+- Added official GPT-6 Astra and current GPT-5.6 pricing, including distinct cache-write rates, short/long context pricing at the 272K input-token boundary, and Standard, Flex, Batch, Fast, and Priority tiers.
+
 ## [0.1.5] - 2026-09-04
 
 ### Changed
