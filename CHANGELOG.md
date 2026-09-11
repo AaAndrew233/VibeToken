@@ -1,6 +1,10 @@
 # Changelog
 
-## [Unreleased]
+## [0.1.7] - 2026-09-11
+
+### Fixed
+
+- Kept the Settings window above the menu bar popover and persisted Dock visibility and launch-at-login preferences across app restarts.
 
 ## [0.1.6] - 2026-09-05
 
