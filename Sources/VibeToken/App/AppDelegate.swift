@@ -228,8 +228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private func showSettingsWindow() {
         guard let state else { return }
         if let settingsWindow, settingsWindow.isVisible {
-            NSApp.activate(ignoringOtherApps: true)
-            settingsWindow.makeKeyAndOrderFront(nil)
+            bringSettingsWindowToFront(settingsWindow, state: state)
             return
         }
 
@@ -243,6 +242,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         window.minSize = NSSize(width: 380, height: 190)
         window.maxSize = NSSize(width: 620, height: 360)
         window.isReleasedWhenClosed = false
+        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+        window.hidesOnDeactivate = false
         window.contentViewController = NSHostingController(
             rootView: SettingsWindowView(
                 state: state
@@ -250,10 +251,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         )
         window.delegate = self
         window.center()
+        settingsWindow = window
+        bringSettingsWindowToFront(window, state: state)
+    }
+
+    private func bringSettingsWindowToFront(_ window: NSWindow, state: AppState) {
+        if let popoverWindow = popover.contentViewController?.view.window {
+            window.level = popoverWindow.level
+            window.order(.above, relativeTo: popoverWindow.windowNumber)
+        } else {
+            window.level = .floating
+        }
         applyDockIconMode(state.dockIconMode)
         NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
-        settingsWindow = window
+        window.orderFrontRegardless()
+        window.makeKey()
     }
 
     func windowWillClose(_ notification: Notification) {

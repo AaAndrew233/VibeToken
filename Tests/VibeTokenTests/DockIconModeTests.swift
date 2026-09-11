@@ -23,4 +23,18 @@ final class DockIconModeTests: XCTestCase {
 
         XCTAssertEqual(DockIconMode.load(from: defaults), .menuBarOnly)
     }
+
+    func testLaunchAtLoginPreferenceRoundTripsInUserDefaults() throws {
+        let suiteName = "LaunchAtLoginPreferenceTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertNil(LaunchAtLogin.savedPreference(from: defaults))
+
+        LaunchAtLogin.savePreference(true, to: defaults)
+        XCTAssertEqual(LaunchAtLogin.savedPreference(from: defaults), true)
+
+        LaunchAtLogin.savePreference(false, to: defaults)
+        XCTAssertEqual(LaunchAtLogin.savedPreference(from: defaults), false)
+    }
 }

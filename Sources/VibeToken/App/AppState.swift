@@ -96,7 +96,7 @@ final class AppState {
         selectedTimeRange = UserDefaults.standard.string(forKey: Self.timeRangeKey)
             .flatMap(UsageTimeRange.init(rawValue:)) ?? .today
         dockIconMode = DockIconMode.load()
-        launchAtLogin = LaunchAtLogin.isRegistered
+        launchAtLogin = LaunchAtLogin.savedPreference() ?? LaunchAtLogin.isRegistered
         refreshMode = UserDefaults.standard.string(forKey: Self.refreshModeKey)
             .flatMap(RefreshMode.init(rawValue:)) ?? .realTime
     }
@@ -247,9 +247,10 @@ final class AppState {
         guard enabled != launchAtLogin else { return }
         do {
             try LaunchAtLogin.setRegistered(enabled)
-            launchAtLogin = LaunchAtLogin.isRegistered
+            LaunchAtLogin.savePreference(enabled)
+            launchAtLogin = enabled
         } catch {
-            launchAtLogin = LaunchAtLogin.isRegistered
+            launchAtLogin = LaunchAtLogin.savedPreference() ?? LaunchAtLogin.isRegistered
             PrivacyLog.lifecycle.error(
                 "Launch-at-login setting failed: \(error.localizedDescription, privacy: .private(mask: .hash))"
             )
