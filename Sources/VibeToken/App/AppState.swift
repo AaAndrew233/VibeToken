@@ -187,6 +187,40 @@ final class AppState {
     }
 
     @discardableResult
+    func refreshManually(refreshAccountCredentials: Bool) async -> Bool {
+        guard refreshAccountCredentials, sub2APIConnection != nil else {
+            return await refresh(forceRemote: true)
+        }
+        guard sub2APIRefreshTask == nil, !sub2APIStatus.isBusy else { return false }
+
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return false }
+            sub2APIStatus = .syncing
+            sub2APILastError = nil
+            do {
+                try await sub2APIPoolMonitor.refreshAccountCredentials()
+                let outcome = await performSub2APIPoolRefresh(force: true)
+                applySub2APIRefreshOutcome(outcome)
+                return outcome.didSucceed
+            } catch let error as Sub2APIError {
+                sub2APILastError = error
+                sub2APIStatus = .failed(error)
+                return false
+            } catch {
+                sub2APILastError = .serverUnavailable
+                sub2APIStatus = .failed(.serverUnavailable)
+                return false
+            }
+        }
+        sub2APIRefreshTask = task
+        let didRefreshSub2API = await task.value
+        sub2APIRefreshTask = nil
+        guard didRefreshSub2API else { return false }
+
+        return await refresh(forceRemote: false)
+    }
+
+    @discardableResult
     func refresh(forceRemote: Bool = false) async -> Bool {
         if forceRemote {
             forceRemoteRefreshRequestedWhileBusy = true

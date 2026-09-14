@@ -10,10 +10,12 @@ protocol Sub2APIClientServing: Sendable {
     func login(baseURL: URL, email: String, password: String) async throws -> Sub2APILoginResult
     func completeTwoFactor(baseURL: URL, tempToken: String, code: String) async throws -> Sub2APISession
     func fetchAccounts(baseURL: URL, pageSize: Int, maximumPages: Int) async throws -> [Sub2APIAccountPayload]
+    func refreshAccountCredentials(baseURL: URL, accountIDs: [Int64]) async throws
     func refreshAccountUsage(baseURL: URL, accountIDs: [Int64]) async throws
 }
 
 actor Sub2APIClient: Sub2APIClientServing {
+    private static let batchCredentialRefreshRequestTimeout: TimeInterval = 120
     private static let batchUsageRefreshRequestTimeout: TimeInterval = 45
     private static let accountUsageRefreshRequestTimeout: TimeInterval = 20
 
@@ -144,6 +146,45 @@ actor Sub2APIClient: Sub2APIClientServing {
             }
         }
         throw Sub2APIError.tooManyAccounts
+    }
+
+    func refreshAccountCredentials(baseURL: URL, accountIDs: [Int64]) async throws {
+        let normalizedIDs = Array(Set(accountIDs.filter { $0 > 0 })).sorted()
+        guard !normalizedIDs.isEmpty else { return }
+
+        let body = try encoder.encode(BatchAccountIDsRequest(accountIDs: normalizedIDs))
+        var session = try await validSession(baseURL: baseURL)
+        var retriedAuthorization = false
+
+        while true {
+            do {
+                let response: BatchCredentialRefreshResponse = try await send(
+                    baseURL: baseURL,
+                    path: "admin/accounts/batch-refresh",
+                    method: "POST",
+                    body: body,
+                    accessToken: session.accessToken,
+                    requestTimeoutOverride: Self.batchCredentialRefreshRequestTimeout
+                )
+                let total = normalizedIDs.count
+                guard response.total == total,
+                      response.failed == 0,
+                      response.success == total
+                else {
+                    throw Sub2APIError.credentialRefreshIncomplete(
+                        refreshed: min(max(response.success, 0), total),
+                        total: total
+                    )
+                }
+                return
+            } catch Sub2APIError.unauthorized {
+                guard !retriedAuthorization else { throw Sub2APIError.unauthorized }
+                session = try await refreshSession(baseURL: baseURL, current: session)
+                retriedAuthorization = true
+            } catch Sub2APIError.incompatibleServer {
+                throw Sub2APIError.credentialRefreshUnsupported
+            }
+        }
     }
 
     func refreshAccountUsage(baseURL: URL, accountIDs: [Int64]) async throws {
@@ -456,6 +497,20 @@ private struct RefreshRequest: Encodable {
     enum CodingKeys: String, CodingKey {
         case refreshToken = "refresh_token"
     }
+}
+
+private struct BatchAccountIDsRequest: Encodable {
+    let accountIDs: [Int64]
+
+    enum CodingKeys: String, CodingKey {
+        case accountIDs = "account_ids"
+    }
+}
+
+private struct BatchCredentialRefreshResponse: Decodable, Sendable {
+    let total: Int
+    let success: Int
+    let failed: Int
 }
 
 private struct BatchUsageRequest: Encodable {

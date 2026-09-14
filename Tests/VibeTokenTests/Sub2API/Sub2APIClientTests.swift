@@ -211,6 +211,75 @@ final class Sub2APIClientTests: XCTestCase {
         XCTAssertEqual(payload["force"] as? Bool, true)
     }
 
+    func testRefreshAccountCredentialsPostsNormalizedIDs() async throws {
+        let loader = StubLoader(responses: [
+            response(
+                status: 200,
+                body: #"{"code":0,"message":"success","data":{"total":2,"success":2,"failed":0,"errors":[]}}"#
+            )
+        ])
+        let store = MemorySessionStore(
+            session: Sub2APISession(accessToken: "access", refreshToken: nil, expiresAt: nil)
+        )
+        let client = Sub2APIClient(loader: loader, sessionStore: store, requestTimeout: 2)
+
+        try await client.refreshAccountCredentials(
+            baseURL: try XCTUnwrap(URL(string: "https://relay.example.com/api/v1")),
+            accountIDs: [7, 2, 7, 0, -1]
+        )
+
+        let requests = await loader.requests()
+        let request = try XCTUnwrap(requests.first)
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.path, "/api/v1/admin/accounts/batch-refresh")
+        let body = try XCTUnwrap(request.httpBody)
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        XCTAssertEqual(payload["account_ids"] as? [Int], [2, 7])
+    }
+
+    func testRefreshAccountCredentialsReportsPartialFailure() async throws {
+        let loader = StubLoader(responses: [
+            response(
+                status: 200,
+                body: #"{"code":0,"message":"success","data":{"total":2,"success":1,"failed":1,"errors":[{"account_id":7,"error":"refresh failed"}]}}"#
+            )
+        ])
+        let store = MemorySessionStore(
+            session: Sub2APISession(accessToken: "access", refreshToken: nil, expiresAt: nil)
+        )
+        let client = Sub2APIClient(loader: loader, sessionStore: store, requestTimeout: 2)
+
+        do {
+            try await client.refreshAccountCredentials(
+                baseURL: try XCTUnwrap(URL(string: "https://relay.example.com/api/v1")),
+                accountIDs: [2, 7]
+            )
+            XCTFail("Expected incomplete credential refresh")
+        } catch let error as Sub2APIError {
+            XCTAssertEqual(error, .credentialRefreshIncomplete(refreshed: 1, total: 2))
+        }
+    }
+
+    func testRefreshAccountCredentialsClassifiesMissingEndpoint() async throws {
+        let loader = StubLoader(responses: [response(status: 404, body: "Not Found")])
+        let store = MemorySessionStore(
+            session: Sub2APISession(accessToken: "access", refreshToken: nil, expiresAt: nil)
+        )
+        let client = Sub2APIClient(loader: loader, sessionStore: store, requestTimeout: 2)
+
+        do {
+            try await client.refreshAccountCredentials(
+                baseURL: try XCTUnwrap(URL(string: "https://relay.example.com/api/v1")),
+                accountIDs: [2]
+            )
+            XCTFail("Expected unsupported credential refresh")
+        } catch let error as Sub2APIError {
+            XCTAssertEqual(error, .credentialRefreshUnsupported)
+        }
+    }
+
     func testBatchUsageErrorsFailTheWholeRefresh() async throws {
         let loader = StubLoader(responses: [
             response(

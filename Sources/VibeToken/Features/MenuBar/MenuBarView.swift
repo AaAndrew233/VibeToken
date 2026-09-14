@@ -10,6 +10,7 @@ struct MenuBarView: View {
     @State private var highlightedDistributionKey: String?
     @State private var manualRefreshFeedback = ManualRefreshFeedback.idle
     @State private var showingSub2APIConnection = false
+    @State private var showingRefreshConfirmation = false
 
     let onOpenSettings: () -> Void
     let onQuit: () -> Void
@@ -98,6 +99,24 @@ struct MenuBarView: View {
             if ProcessInfo.processInfo.environment["VIBETOKEN_UI_TEST_SUB2API_SHEET"] == "1" {
                 showingSub2APIConnection = true
             }
+            if ProcessInfo.processInfo.environment["VIBETOKEN_UI_TEST_REFRESH_CONFIRMATION"] == "1" {
+                showingRefreshConfirmation = true
+            }
+        }
+        .confirmationDialog(
+            state.text(.refreshConfirmationTitle),
+            isPresented: $showingRefreshConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(state.text(.refreshPlanAndQuota)) {
+                Task { await performManualRefresh(refreshAccountCredentials: true) }
+            }
+            Button(state.text(.refreshQuotaOnly)) {
+                Task { await performManualRefresh(refreshAccountCredentials: false) }
+            }
+            Button(state.text(.cancel), role: .cancel) {}
+        } message: {
+            Text(state.text(.refreshConfirmationMessage))
         }
     }
 
@@ -602,12 +621,20 @@ struct MenuBarView: View {
             .fixedSize()
 
             Button {
-                Task { await performManualRefresh() }
+                if state.sub2APIConnection == nil {
+                    Task { await performManualRefresh(refreshAccountCredentials: false) }
+                } else {
+                    showingRefreshConfirmation = true
+                }
             } label: {
                 manualRefreshIcon
             }
             .buttonStyle(.borderless)
-            .disabled(state.isRefreshing || manualRefreshFeedback != .idle)
+            .disabled(
+                state.isRefreshing
+                    || state.sub2APIStatus.isBusy
+                    || manualRefreshFeedback != .idle
+            )
             .accessibilityLabel(manualRefreshHelp)
             .help(manualRefreshHelp)
 
@@ -692,10 +719,15 @@ struct MenuBarView: View {
         }
     }
 
-    private func performManualRefresh() async {
-        guard !state.isRefreshing, manualRefreshFeedback == .idle else { return }
+    private func performManualRefresh(refreshAccountCredentials: Bool) async {
+        guard !state.isRefreshing,
+              !state.sub2APIStatus.isBusy,
+              manualRefreshFeedback == .idle
+        else { return }
         manualRefreshFeedback = .refreshing
-        let didSucceed = await state.refresh(forceRemote: true)
+        let didSucceed = await state.refreshManually(
+            refreshAccountCredentials: refreshAccountCredentials
+        )
         manualRefreshFeedback = didSucceed ? .succeeded : .failed
         do {
             try await Task.sleep(for: .seconds(1.4))

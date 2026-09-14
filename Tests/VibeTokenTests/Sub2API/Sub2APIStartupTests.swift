@@ -300,6 +300,8 @@ private actor UnusedSub2APIClient: Sub2APIClientServing {
         []
     }
 
+    func refreshAccountCredentials(baseURL: URL, accountIDs: [Int64]) async throws {}
+
     func refreshAccountUsage(baseURL: URL, accountIDs: [Int64]) async throws {}
 }
 
@@ -318,6 +320,8 @@ private actor CountingSub2APIClient: Sub2APIClientServing {
         fetchCount += 1
         return []
     }
+
+    func refreshAccountCredentials(baseURL: URL, accountIDs: [Int64]) async throws {}
 
     func refreshAccountUsage(baseURL: URL, accountIDs: [Int64]) async throws {}
 }
@@ -345,6 +349,8 @@ private actor DelayedUsageSub2APIClient: Sub2APIClientServing {
         let body = #"{"id":1,"status":"active","schedulable":true,"parent_account_id":null,"credentials":{"plan_type":"plus"},"extra":{"codex_5h_used_percent":25,"codex_7d_used_percent":50,"codex_usage_updated_at":"\#(timestamp)"}}"#
         return [try JSONDecoder().decode(Sub2APIAccountPayload.self, from: Data(body.utf8))]
     }
+
+    func refreshAccountCredentials(baseURL: URL, accountIDs: [Int64]) async throws {}
 
     func refreshAccountUsage(baseURL: URL, accountIDs: [Int64]) async throws {
         usageRefreshCount += 1
@@ -379,6 +385,8 @@ private actor RecoveryTimingSub2APIClient: Sub2APIClientServing {
         let body = #"{"id":1,"status":"active","schedulable":true,"parent_account_id":null,"credentials":{"plan_type":"plus"},"extra":{"codex_5h_used_percent":\#(usageRefreshCount >= 2 ? 0 : 100),"codex_5h_reset_at":"\#(timestamp(recoveryAt))","codex_7d_used_percent":20,"codex_usage_updated_at":"\#(timestamp(usageUpdatedAt))"}}"#
         return [try JSONDecoder().decode(Sub2APIAccountPayload.self, from: Data(body.utf8))]
     }
+
+    func refreshAccountCredentials(baseURL: URL, accountIDs: [Int64]) async throws {}
 
     func refreshAccountUsage(baseURL: URL, accountIDs: [Int64]) async throws {
         usageRefreshCount += 1

@@ -481,6 +481,25 @@ final class Sub2APIPoolMonitorTests: XCTestCase {
         XCTAssertEqual(snapshot?.staleWindowAccounts, 0)
     }
 
+    func testCredentialRefreshTargetsOnlyActivePhysicalAccounts() async throws {
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let accounts = try [
+            decodeUsageAccount(id: 1, status: "active", updatedAt: timestamp),
+            decodeUsageAccount(id: 2, status: "inactive", updatedAt: timestamp),
+            decodeUsageAccount(id: 3, status: "active", parentAccountID: 1, updatedAt: timestamp)
+        ]
+        let client = RecordingAccountsClient(accountResponses: [accounts])
+        let fixture = try makeUsageRefreshFixture(client: client)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        try await fixture.monitor.refreshAccountCredentials()
+
+        let credentialRequests = await client.credentialRequests
+        let usageRequests = await client.usageRequests
+        XCTAssertEqual(credentialRequests, [[1]])
+        XCTAssertTrue(usageRequests.isEmpty)
+    }
+
     func testLightweightPollingDoesNotRepeatUsageRefreshWithinInterval() async throws {
         let currentTimestamp = ISO8601DateFormatter().string(from: Date())
         let accounts = try [decodeUsageAccount(id: 1, status: "active", updatedAt: currentTimestamp)]
@@ -806,6 +825,8 @@ private actor FixedAccountsClient: Sub2APIClientServing {
         accounts
     }
 
+    func refreshAccountCredentials(baseURL: URL, accountIDs: [Int64]) async throws {}
+
     func refreshAccountUsage(baseURL: URL, accountIDs: [Int64]) async throws {}
 }
 
@@ -814,6 +835,7 @@ private actor RecordingAccountsClient: Sub2APIClientServing {
     private let fallbackAccounts: [Sub2APIAccountPayload]
     private let usageError: Sub2APIError?
     private(set) var fetchCount = 0
+    private(set) var credentialRequests: [[Int64]] = []
     private(set) var usageRequests: [[Int64]] = []
 
     init(
@@ -845,6 +867,10 @@ private actor RecordingAccountsClient: Sub2APIClientServing {
         fetchCount += 1
         guard !accountResponses.isEmpty else { return fallbackAccounts }
         return accountResponses.removeFirst()
+    }
+
+    func refreshAccountCredentials(baseURL: URL, accountIDs: [Int64]) async throws {
+        credentialRequests.append(accountIDs)
     }
 
     func refreshAccountUsage(baseURL: URL, accountIDs: [Int64]) async throws {

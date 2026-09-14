@@ -77,6 +77,10 @@ enum CopyKey: String, Sendable {
     case syncing
     case refreshSucceeded
     case refreshFailed
+    case refreshConfirmationTitle
+    case refreshConfirmationMessage
+    case refreshPlanAndQuota
+    case refreshQuotaOnly
     case relayCapacity
     case fiveHourWindow
     case sevenDayWindow
@@ -202,6 +206,10 @@ enum Localizer {
         .syncing: "正在同步",
         .refreshSucceeded: "同步完成",
         .refreshFailed: "同步失败",
+        .refreshConfirmationTitle: "更新套餐信息和额度？",
+        .refreshConfirmationMessage: "更新套餐信息会让 Sub2API 刷新 OAuth 凭证，可能需要较长时间；仅刷新额度不会修改凭证。",
+        .refreshPlanAndQuota: "更新套餐与额度",
+        .refreshQuotaOnly: "仅刷新额度",
         .relayCapacity: "中转额度",
         .fiveHourWindow: "5 小时窗口",
         .sevenDayWindow: "7 天窗口",
@@ -317,6 +325,10 @@ enum Localizer {
         .syncing: "Syncing",
         .refreshSucceeded: "Synced",
         .refreshFailed: "Sync failed",
+        .refreshConfirmationTitle: "Update plan information and quotas?",
+        .refreshConfirmationMessage: "Updating plan information asks Sub2API to refresh OAuth credentials and may take longer. Quota-only refresh does not change credentials.",
+        .refreshPlanAndQuota: "Update Plans & Quotas",
+        .refreshQuotaOnly: "Refresh Quotas Only",
         .relayCapacity: "Relay Capacity",
         .fiveHourWindow: "5-Hour Window",
         .sevenDayWindow: "7-Day Window",

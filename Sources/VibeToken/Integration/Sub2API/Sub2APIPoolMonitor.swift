@@ -157,6 +157,20 @@ actor Sub2APIPoolMonitor {
         lastSuccessfulUsageRefreshAt
     }
 
+    func refreshAccountCredentials() async throws {
+        guard let connection = savedConnection() else { return }
+        let payloads = try await client.fetchAccounts(
+            baseURL: connection.baseURL,
+            pageSize: pageSize,
+            maximumPages: maximumPages
+        )
+        let accountIDs = activePhysicalAccountIDs(in: payloads)
+        try await client.refreshAccountCredentials(
+            baseURL: connection.baseURL,
+            accountIDs: accountIDs.sorted()
+        )
+    }
+
     func capacityOptions() throws -> [Sub2APIAccountCapacityOption] {
         let tiers = try savedTiers()
         let observedAt = Date()
