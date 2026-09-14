@@ -25,7 +25,7 @@
 VibeToken is built for developers who use AI coding tools throughout the day and want one quick, honest view of local usage without opening multiple dashboards.
 
 > [!NOTE]
-> This is an early preview with twenty-two supported AI coding sources. The current release is [v0.1.7 Preview](https://github.com/AaAndrew233/VibeToken/releases/tag/v0.1.7). Downloadable builds are available from GitHub Releases, but they are not yet Apple-notarized.
+> This is an early preview with twenty-two supported AI coding sources. The current release is [v0.1.8 Preview](https://github.com/AaAndrew233/VibeToken/releases/tag/v0.1.8). Downloadable builds are available from GitHub Releases, but they are not yet Apple-notarized.
 
 ## Preview
 
@@ -40,7 +40,7 @@ VibeToken is built for developers who use AI coding tools throughout the day and
 - Input, cache, output, reasoning, model, tool, and session breakdowns.
 - Versioned OpenAI, Anthropic, and Google API price estimates with pricing coverage shown explicitly.
 - Duplicate emission and fork/subagent replay filtering.
-- Optional read-only Sub2API pool monitoring with per-account remaining quota, 5-hour and 7-day reset times, plan expiration dates when provided, and explicit rate-limited or unavailable states.
+- Optional Sub2API pool monitoring with read-only automatic quota refreshes, per-account reset and plan expiration times, explicit rate-limited or unavailable states, and a separately confirmed manual OAuth credential refresh for updating plan metadata.
 - Native macOS menu bar and Dock entry points in English and Simplified Chinese; Dock visibility and launch at login are managed only in the dedicated Settings window, which opens without dismissing the menu bar popover.
 
 ## Support
@@ -99,7 +99,7 @@ The build script creates an ad-hoc signed app at `dist/VibeToken.app`. It is sui
 
 ### Release status
 
-- Current release: [v0.1.7 Preview](https://github.com/AaAndrew233/VibeToken/releases/tag/v0.1.7).
+- Current release: [v0.1.8 Preview](https://github.com/AaAndrew233/VibeToken/releases/tag/v0.1.8).
 - For end-user distribution, use the versioned archive and checksum published on GitHub Releases. Do not share the entire development folder.
 - The current archive is ad-hoc signed and not notarized, so another Mac may show a Gatekeeper warning.
 - A public end-user release should use Developer ID signing, Apple notarization, and a versioned archive or DMG.
@@ -112,7 +112,7 @@ The build script creates an ad-hoc signed app at `dist/VibeToken.app`. It is sui
 4. Click the gear button in the top-right of the menu bar popover to open Settings and control Dock visibility and launch at login. The popover remains open while Settings appears; these two options are not duplicated elsewhere in the popover.
 5. Use the language control to switch between English and Simplified Chinese.
 
-For optional Sub2API monitoring, sign in with an administrator account in the existing Relay Capacity area. After the first sync, each detected `Plus` account uses `Plus` (1x), while every detected `Pro` account must be assigned `Pro 5x`, `Pro 10x`, or `Pro 20x` manually. An unconfigured Pro account does not receive a guessed default, and pool capacity remains unavailable until it is configured. App startup, Mac wake, a user-initiated refresh, a changed account pool, and the 30-minute schedule all request Sub2API's official usage probe with `force=true`. On released servers without the batch route, VibeToken falls back to the released per-account endpoint with `source=active&force=true` and at most six concurrent requests. It then reads the account list back until every active physical account has a newly persisted, valid 5-hour and 7-day snapshot, or an explicit unavailable or exhausted state. The pool total is published only after the entire set passes validation. A partial or unverifiable refresh hides the current total, reports the verified account count, and keeps only the timestamp of the last successful refresh. VibeToken does not reset, edit, or delete relay accounts.
+For optional Sub2API monitoring, sign in with an administrator account in the existing Relay Capacity area. After the first sync, each detected `Plus` account uses `Plus` (1x), while every detected `Pro` account must be assigned `Pro 5x`, `Pro 10x`, or `Pro 20x` manually. An unconfigured Pro account does not receive a guessed default, and pool capacity remains unavailable until it is configured. App startup, Mac wake, account-pool changes, and the 30-minute schedule request Sub2API's official usage probe with `force=true` without changing OAuth credentials. When a connected user clicks refresh, VibeToken asks whether to refresh quotas only or update plan information and quotas. The latter explicitly calls Sub2API's batch OAuth credential refresh for active physical accounts, which can rotate stored account tokens and may take up to 120 seconds, then runs the verified quota refresh and reads the updated account list. On released servers without the batch usage route, VibeToken falls back to the per-account endpoint with `source=active&force=true` and at most six concurrent requests. The pool total is published only after the entire set passes validation. Partial credential or quota refreshes report the verified account count instead of publishing a false success. VibeToken does not reset or delete relay accounts.
 
 ## Accuracy
 
@@ -144,6 +144,7 @@ For Sub2API, physical account counts remain unweighted. The availability card an
 - Usage indexes stay in the local application support directory.
 - Tokens, passwords, cookies, account addresses, and response bodies are excluded from logs.
 - Sub2API credentials are stored in local files with restricted permissions, not in macOS Keychain. This is less protected than Keychain against other processes running as the same macOS user.
+- Automatic Sub2API monitoring is read-only. Only the explicitly confirmed **Update Plans & Quotas** action asks Sub2API to refresh OAuth credentials; this can rotate the relay accounts' stored access and refresh tokens.
 
 ## Development
 

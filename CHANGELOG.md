@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.8] - 2026-09-14
+
+### Fixed
+
+- Added a confirmed manual refresh path that updates Sub2API OAuth credentials and current plan expiration dates before running the existing verified quota refresh.
+- Kept startup, wake, polling, and scheduled quota refreshes read-only; partial credential refreshes now report the verified success count instead of publishing a false success.
+
 ## [0.1.7] - 2026-09-11
 
 ### Fixed
