@@ -81,8 +81,8 @@ struct PricingCatalog: Sendable {
 
 extension PricingCatalog {
     static let officialAPI = PricingCatalog(
-        version: "official-api-2026-09-05-v2",
-        verifiedAt: Date(timeIntervalSince1970: 1_788_566_400),
+        version: "official-api-2026-09-24-v3",
+        verifiedAt: Date(timeIntervalSince1970: 1_790_208_000),
         sourceURLs: [
             "https://developers.openai.com/api/docs/pricing/",
             "https://platform.claude.com/docs/en/about-claude/pricing",
@@ -109,6 +109,10 @@ extension PricingCatalog {
                     "flex": rate(2_500_000, 15_000_000, 250_000)
                 ]
             ),
+            rule("gpt-5.5-pro", 30_000_000, 180_000_000, nil),
+            rule("gpt-5.4-pro", 30_000_000, 180_000_000, nil),
+            rule("gpt-5.2-pro", 21_000_000, 168_000_000, nil),
+            rule("gpt-5-pro", 15_000_000, 120_000_000, nil),
             contextPricedRule(
                 "gpt-6-astra",
                 standardShort: rate(10_000_000, 50_000_000, 1_000_000, 12_500_000),
@@ -119,9 +123,27 @@ extension PricingCatalog {
                 fastLong: rate(40_000_000, 150_000_000, 4_000_000, 50_000_000)
             ),
             contextPricedRule(
+                "gpt-6-sol",
+                standardShort: rate(2_000_000, 10_000_000, 200_000, 2_500_000),
+                standardLong: rate(4_000_000, 20_000_000, 400_000, 5_000_000),
+                flexShort: rate(1_000_000, 5_000_000, 100_000, 1_250_000),
+                flexLong: rate(2_000_000, 10_000_000, 200_000, 2_500_000),
+                fastShort: rate(4_000_000, 20_000_000, 400_000, 5_000_000),
+                fastLong: rate(8_000_000, 40_000_000, 800_000, 10_000_000)
+            ),
+            contextPricedRule(
+                "gpt-6-luna",
+                standardShort: rate(100_000, 500_000, 10_000, 125_000),
+                standardLong: rate(200_000, 1_000_000, 20_000, 250_000),
+                flexShort: rate(50_000, 250_000, 5_000, 62_500),
+                flexLong: rate(100_000, 500_000, 10_000, 125_000),
+                fastShort: rate(200_000, 1_000_000, 20_000, 250_000),
+                fastLong: rate(400_000, 2_000_000, 40_000, 500_000)
+            ),
+            contextPricedRule(
                 "gpt-5.6-sol",
                 standardShort: rate(4_000_000, 20_000_000, 400_000, 5_000_000),
-                standardLong: rate(8_000_000, 30_000_000, 800_000, 10_000_000),
+                standardLong: rate(8_000_000, 40_000_000, 800_000, 10_000_000),
                 flexShort: rate(2_000_000, 10_000_000, 200_000, 2_500_000),
                 flexLong: rate(4_000_000, 15_000_000, 400_000, 5_000_000),
                 fastShort: rate(8_000_000, 40_000_000, 800_000, 10_000_000),
@@ -130,7 +152,7 @@ extension PricingCatalog {
             contextPricedRule(
                 "gpt-5.6-terra",
                 standardShort: rate(2_000_000, 12_000_000, 200_000, 2_500_000),
-                standardLong: rate(4_000_000, 18_000_000, 400_000, 5_000_000),
+                standardLong: rate(4_000_000, 24_000_000, 400_000, 5_000_000),
                 flexShort: rate(1_000_000, 6_000_000, 100_000, 1_250_000),
                 flexLong: rate(2_000_000, 9_000_000, 200_000, 2_500_000),
                 fastShort: rate(4_000_000, 24_000_000, 400_000, 5_000_000),
@@ -139,7 +161,7 @@ extension PricingCatalog {
             contextPricedRule(
                 "gpt-5.6-luna",
                 standardShort: rate(200_000, 1_200_000, 20_000, 250_000),
-                standardLong: rate(400_000, 1_800_000, 40_000, 500_000),
+                standardLong: rate(400_000, 2_400_000, 40_000, 500_000),
                 flexShort: rate(100_000, 600_000, 10_000, 125_000),
                 flexLong: rate(200_000, 900_000, 20_000, 250_000),
                 fastShort: rate(400_000, 2_400_000, 40_000, 500_000),

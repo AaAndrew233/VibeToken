@@ -40,6 +40,42 @@ final class CostEstimatorTests: XCTestCase {
         XCTAssertEqual(long.amount.micros, 197_000_000)
     }
 
+    func testPricesGPT6SolAndLunaAcrossContextBands() throws {
+        let solShort = try XCTUnwrap(estimator.estimate(for: snapshot(model: "gpt-6-sol")))
+        let solLong = try XCTUnwrap(estimator.estimate(for: snapshot(
+            model: "gpt-6-sol",
+            pricingContext: .long
+        )))
+        let lunaShort = try XCTUnwrap(estimator.estimate(for: snapshot(model: "gpt-6-luna")))
+        let lunaLong = try XCTUnwrap(estimator.estimate(for: snapshot(
+            model: "gpt-6-luna",
+            pricingContext: .long
+        )))
+
+        XCTAssertEqual(solShort.amount.micros, 24_700_000)
+        XCTAssertEqual(solLong.amount.micros, 49_400_000)
+        XCTAssertEqual(lunaShort.amount.micros, 1_235_000)
+        XCTAssertEqual(lunaLong.amount.micros, 2_470_000)
+    }
+
+    func testGPT5ProFamilyUsesCurrentOfficialRates() throws {
+        let cases: [(String, Int64, Int64)] = [
+            ("gpt-5.5-pro", 30_000_000, 180_000_000),
+            ("gpt-5.4-pro", 30_000_000, 180_000_000),
+            ("gpt-5.2-pro", 21_000_000, 168_000_000),
+            ("gpt-5-pro", 15_000_000, 120_000_000)
+        ]
+
+        for (model, input, output) in cases {
+            let match = try XCTUnwrap(PricingCatalog.officialAPI.match(
+                model: model,
+                at: Date(timeIntervalSince1970: 1_790_208_000)
+            ))
+            XCTAssertEqual(match.rate.inputMicrosPerMillion, input, model)
+            XCTAssertEqual(match.rate.outputMicrosPerMillion, output, model)
+        }
+    }
+
     func testPricesGPT6AstraProcessingTiersForBothContextBands() throws {
         let flexShort = try XCTUnwrap(estimator.estimate(for: snapshot(model: "gpt-6-astra-flex")))
         let flexLong = try XCTUnwrap(estimator.estimate(for: snapshot(
@@ -97,9 +133,9 @@ final class CostEstimatorTests: XCTestCase {
     func testGPT56FlagshipModelsUseOfficialContextRates() throws {
         let cases: [(String, PricingContext, Int64)] = [
             ("gpt-5.6-terra", .short, 28_700_000),
-            ("gpt-5.6-terra", .long, 45_400_000),
+            ("gpt-5.6-terra", .long, 57_400_000),
             ("gpt-5.6-luna", .short, 2_870_000),
-            ("gpt-5.6-luna", .long, 4_540_000)
+            ("gpt-5.6-luna", .long, 5_740_000)
         ]
 
         for (model, context, expectedMicros) in cases {
@@ -175,11 +211,11 @@ final class CostEstimatorTests: XCTestCase {
     }
 
     func testCatalogRetainsOfficialVerificationMetadata() {
-        XCTAssertEqual(PricingCatalog.officialAPI.version, "official-api-2026-09-05-v2")
+        XCTAssertEqual(PricingCatalog.officialAPI.version, "official-api-2026-09-24-v3")
         XCTAssertEqual(PricingCatalog.officialAPI.sourceURLs.count, 3)
         XCTAssertEqual(
             PricingCatalog.officialAPI.verifiedAt,
-            Date(timeIntervalSince1970: 1_788_566_400)
+            Date(timeIntervalSince1970: 1_790_208_000)
         )
     }
 
