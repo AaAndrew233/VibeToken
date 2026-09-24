@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.9] - 2026-09-24
+
+### Changed
+
+- Added current GPT-6 Sol and GPT-6 Luna pricing across Standard, Flex, Batch, Fast, and long-context tiers.
+- Added current GPT-5 Pro family entries and corrected GPT-5.6 Sol, Terra, and Luna long-context output prices.
+- Refreshed the bundled OpenAI pricing verification metadata to September 24, 2026.
+
 ## [0.1.8] - 2026-09-14
 
 ### Fixed
