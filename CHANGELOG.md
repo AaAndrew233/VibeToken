@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.1.10] - 2026-11-11
+
+### Added
+
+- Added persistent Pro $100 / $200 / $500 plan selections, independent of optional legacy 5x / 10x / 20x estimated weights. Monthly prices are not converted into quota weights.
+- Added verified weekly-only Pro quota support, per-window capacity denominators, and configuration access after an incomplete initial refresh. Reported 5-hour limits remain enforced.
+
+### Changed
+
+- Marked manually weighted pool capacity as estimated and suppressed totals when weights or applicable quota data are unknown. API token pricing is unchanged.
+
+### Fixed
+
+- Recognized `prolite`, `pro` / `chatgptpro`, and `promax` consistently as Pro $100 / $200 / $500 in quota display, configuration, sorting, and pool aggregation. Preserved manual plan and weight selections without assigning Plus 1x to an unrecognized plan.
+- Stopped showing zero-duration quota windows as "5h 100%". Recognized Pro plans can display verified weekly quotas without manual confirmation; real 5-hour limits and legacy window data remain enforced.
+- Separated relay account availability from quota freshness so missing, stale, or expired exhaustion records no longer make otherwise schedulable accounts unavailable. Tabs and account summaries share the same classification.
+- Preserved confirmed runtime restrictions and valid exhaustion in either window, with specific labels for paused scheduling, cooldowns, overloads, disabled or errored accounts, and exhausted quotas.
+- Removed plan expiration display and decoding because the upstream field can retain an outdated subscription date.
+- Continued scanning recently modified Codex sessions even when their date directory is older than the lookback window, so long-running sessions are not omitted from usage totals.
+- Required quota-exhaustion records to pass timestamp verification instead of treating cached 100% usage as proof of a successful refresh.
+
 ## [0.1.9] - 2026-09-24
 
 ### Changed
