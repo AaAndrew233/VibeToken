@@ -3,6 +3,27 @@ import XCTest
 @testable import VibeToken
 
 final class Sub2APIFileStoreTests: XCTestCase {
+    func testLegacyWeightsAndNewPlansPersistIndependently() throws {
+        let legacy = Data(#"{"selectionsByServer":{"YOUR_SERVER_URL":[{"accountID":1,"tier":"pro10"},{"accountID":2,"tier":"pro20"}]}}"#.utf8)
+        let configuration = try JSONDecoder().decode(Sub2APIAccountCapacityConfiguration.self, from: legacy)
+        XCTAssertEqual(configuration.tiersByAccountID(serverIdentifier: "YOUR_SERVER_URL"), [1: .pro10, 2: .pro20])
+        XCTAssertTrue(configuration.proPlansByAccountID(serverIdentifier: "YOUR_SERVER_URL").isEmpty)
+
+        let updated = configuration.updating(
+            serverIdentifier: "YOUR_SERVER_URL",
+            tiersByAccountID: [1: .pro10, 2: .pro20],
+            proPlansByAccountID: [1: .pro100, 2: .pro200, 3: .pro500]
+        )
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileSub2APICapacityConfigurationStore(supportDirectory: directory).save(updated)
+        let restored = try XCTUnwrap(FileSub2APICapacityConfigurationStore(supportDirectory: directory).load())
+        XCTAssertEqual(restored, updated)
+        XCTAssertNil(restored.tiersByAccountID(serverIdentifier: "YOUR_SERVER_URL")[3])
+        XCTAssertEqual(restored.proPlansByAccountID(serverIdentifier: "YOUR_SERVER_URL")[3], .pro500)
+        XCTAssertTrue(restored.proPlansByAccountID(serverIdentifier: "ANOTHER_SERVER_URL").isEmpty)
+    }
+
     func testSessionAndConnectionPersistAcrossStoreInstances() throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

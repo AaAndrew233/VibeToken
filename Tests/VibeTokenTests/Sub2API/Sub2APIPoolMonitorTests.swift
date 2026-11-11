@@ -3,6 +3,152 @@ import XCTest
 @testable import VibeToken
 
 final class Sub2APIPoolMonitorTests: XCTestCase {
+    func testRecognizedWeeklyProDoesNotRequireManualPlanConfirmation() async throws {
+        let cases: [(String, Sub2APIProPlan)] = [("prolite", .pro100), ("pro", .pro200), ("promax", .pro500)]
+        for (wirePlan, plan) in cases {
+            let payload = try decodeWeeklyAccount(plan: wirePlan, updatedAt: Date())
+            let client = RecordingAccountsClient(accountResponses: [[payload]])
+            let fixture = try makeUsageRefreshFixture(client: client)
+            defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+            let initial = try await fixture.monitor.refresh(force: true)
+            XCTAssertEqual(initial?.missingWindowAccounts, 0)
+            XCTAssertNil(initial?.displayedRemainingFraction, "识别套餐不能自动确定估算倍数")
+            let preview = try await fixture.monitor.capacityOptions()
+            XCTAssertEqual(preview.count, 1)
+            XCTAssertEqual(preview.first?.proPlan, plan)
+            XCTAssertEqual(preview.first?.isPro, true)
+            XCTAssertEqual(preview.first?.quotaStatus, .weekly(sevenDayRemainingPercent: 60))
+            let saved = try await fixture.monitor.saveCapacitySelections([
+                .init(accountID: 1, tier: nil, proPlan: plan)
+            ])
+            XCTAssertNil(saved?.displayedRemainingFraction)
+
+            let refreshed = try await fixture.monitor.refresh(force: true)
+            let options = try await fixture.monitor.capacityOptions()
+            XCTAssertEqual(refreshed?.missingWindowAccounts, 0)
+            XCTAssertEqual(refreshed?.unconfiguredCapacityAccounts, 1)
+            XCTAssertNil(refreshed?.displayedRemainingFraction)
+            XCTAssertEqual(options.first?.proPlan, plan)
+            XCTAssertEqual(options.first?.quotaStatus, .weekly(sevenDayRemainingPercent: 60))
+            XCTAssertEqual(options.first?.isAvailableForDisplay, true)
+            let requests = await client.usageRequests
+            XCTAssertEqual(requests, [[1], [1]])
+        }
+    }
+
+    func testProVariantConfigurationIsAvailableAfterIncompleteRefresh() async throws {
+        let payload = try decodeWeeklyAccount(plan: "prolite", updatedAt: nil)
+        let client = RecordingAccountsClient(accountResponses: [[payload]])
+        let fixture = try makeUsageRefreshFixture(client: client)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        do {
+            _ = try await fixture.monitor.refresh(force: true)
+            XCTFail("缺少更新时间不能验真成功")
+        } catch let error as Sub2APIError {
+            XCTAssertEqual(error, .usageRefreshIncomplete(refreshed: 0, total: 1))
+        }
+        let preview = try await fixture.monitor.capacityOptions()
+        XCTAssertEqual(preview.first?.isPro, true)
+        XCTAssertEqual(preview.first?.proPlan, .pro100)
+        XCTAssertEqual(preview.first?.quotaStatus, .unobserved)
+        let saved = try await fixture.monitor.saveCapacitySelections([
+            .init(accountID: 1, tier: .pro5, proPlan: .pro100)
+        ])
+        XCTAssertNil(saved, "配置预览不能发布未经正式验真的额度")
+    }
+
+    func testProVariantsSortAndPersistWeightsAcrossRestart() async throws {
+        let now = Date()
+        let cases: [(Int64, String)] = [(1, "plus"), (2, "pro_lite"), (3, "promax"), (4, "pro")]
+        let payloads = try cases.map { id, plan in
+            try decodeRecoveryAccount(
+                id: id, plan: plan, fiveHourUsedPercent: plan == "plus" ? 20 : nil,
+                sevenDayUsedPercent: 50,
+                usageUpdatedAt: ISO8601DateFormatter().string(from: now)
+            )
+        }
+        let client = RecordingAccountsClient(accountResponses: [payloads])
+        let fixture = try makeUsageRefreshFixture(client: client)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        _ = try await fixture.monitor.refresh(force: true)
+        let preview = try await fixture.monitor.capacityOptions()
+        XCTAssertEqual(preview.map(\.accountID), [2, 3, 4, 1])
+        XCTAssertEqual(preview.map(\.isPro), [true, true, true, false])
+        XCTAssertEqual(preview.map(\.proPlan), [.pro100, .pro500, .pro200, nil])
+
+        _ = try await fixture.monitor.saveCapacitySelections([
+            .init(accountID: 2, tier: .pro5),
+            .init(accountID: 3, tier: .pro10),
+            .init(accountID: 4, tier: .pro20)
+        ])
+        let restored = makeMonitor(
+            client: FixedAccountsClient(accounts: payloads),
+            sessionStore: FileSub2APISessionStore(supportDirectory: fixture.directory),
+            connectionStore: FileSub2APIConnectionStore(supportDirectory: fixture.directory),
+            capacityStore: FileSub2APICapacityConfigurationStore(supportDirectory: fixture.directory)
+        )
+        let pool = try await restored.refresh(force: true)
+        let options = try await restored.capacityOptions()
+        XCTAssertEqual(options.map(\.selectedTier), [.pro5, .pro10, .pro20, .plus])
+        XCTAssertEqual(pool?.totalCapacityWeight, 36)
+        XCTAssertEqual(pool?.fiveHour.totalCapacityWeight, 1)
+        XCTAssertEqual(pool?.displayedRemainingFraction, 0.5)
+    }
+
+    func testWeeklyProStillRequiresFreshValidApplicableWindows() async throws {
+        let cases: [(Date?, Any?, Double)] = [
+            (nil, nil, 40),
+            (Date().addingTimeInterval(-3_600), nil, 40),
+            (Date(), "invalid", 40),
+            (Date(), -1, 40),
+            (nil, nil, 100),
+            (Date().addingTimeInterval(-3_600), nil, 100)
+        ]
+        for (updatedAt, fiveHour, sevenDay) in cases {
+            let payload = try decodeWeeklyAccount(updatedAt: updatedAt, fiveHour: fiveHour, sevenDay: sevenDay)
+            let client = RecordingAccountsClient(accountResponses: [[payload]])
+            let fixture = try makeUsageRefreshFixture(client: client)
+            defer { try? FileManager.default.removeItem(at: fixture.directory) }
+            do { _ = try await fixture.monitor.refresh(force: true) } catch {}
+            _ = try await fixture.monitor.saveCapacitySelections([
+                .init(accountID: 1, tier: .pro10, proPlan: .pro100)
+            ])
+            do {
+                _ = try await fixture.monitor.refresh(force: true)
+                XCTFail("套餐选择不能绕过时间戳和有效窗口校验")
+            } catch let error as Sub2APIError {
+                XCTAssertEqual(error, .usageRefreshIncomplete(refreshed: 0, total: 1))
+            }
+        }
+    }
+
+    func testSelectingProPlanDoesNotConvertPlusOrUnknownPlan() throws {
+        let plus = try decodeWeeklyAccount(plan: "plus", updatedAt: Date())
+            .snapshot(now: Date(), capacityTier: .pro20, proPlan: .pro500)
+        XCTAssertNil(plus.proPlan)
+        XCTAssertEqual(plus.capacityTier, .plus)
+        XCTAssertTrue(plus.requiresFiveHourWindow)
+        let unknown = try decodeWeeklyAccount(plan: "unknown", updatedAt: Date())
+            .snapshot(now: Date(), capacityTier: .pro20, proPlan: .pro500)
+        XCTAssertNil(unknown.capacityTier)
+        XCTAssertNil(unknown.proPlan)
+        XCTAssertTrue(unknown.requiresFiveHourWindow)
+    }
+
+    private func decodeWeeklyAccount(
+        plan: String = "pro", updatedAt: Date?, fiveHour: Any? = nil, sevenDay: Double = 40
+    ) throws -> Sub2APIAccountPayload {
+        var extra: [String: Any] = ["codex_7d_used_percent": sevenDay]
+        if let updatedAt { extra["codex_usage_updated_at"] = ISO8601DateFormatter().string(from: updatedAt) }
+        if let fiveHour { extra["codex_5h_used_percent"] = fiveHour }
+        let data = try JSONSerialization.data(withJSONObject: [
+            "id": 1, "status": "active", "schedulable": true,
+            "credentials": ["plan_type": plan], "extra": extra
+        ])
+        return try JSONDecoder().decode(Sub2APIAccountPayload.self, from: data)
+    }
+
     func testCapacityOptionsPrioritizeProAccountsWithoutReorderingEachGroup() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("VibeTokenMonitorTests-\(UUID().uuidString)", isDirectory: true)
@@ -109,7 +255,16 @@ final class Sub2APIPoolMonitorTests: XCTestCase {
             capacityStore: capacityStore
         )
 
-        let snapshot = try await monitor.refresh(force: true)
+        do {
+            _ = try await monitor.refresh(force: true)
+            XCTFail("旧耗尽记录不应通过正式刷新校验")
+        } catch let error as Sub2APIError {
+            XCTAssertEqual(error, .usageRefreshIncomplete(refreshed: 4, total: 5))
+        }
+        // 配置预览仍应和领域分类一致，但不会发布为刷新成功的账号池。
+        let snapshot = Sub2APIPoolAggregator.aggregate(
+            accounts: payloads.map { $0.snapshot(now: now) }, fetchedAt: now, staleAfter: 900
+        )
         let options = try await monitor.capacityOptions()
         let optionsByID = Dictionary(uniqueKeysWithValues: options.map { ($0.accountID, $0) })
 
@@ -129,10 +284,12 @@ final class Sub2APIPoolMonitorTests: XCTestCase {
         XCTAssertFalse(optionsByID[2]?.isAvailableForDisplay ?? true)
         XCTAssertFalse(optionsByID[3]?.isAvailableForDisplay ?? true)
         XCTAssertTrue(optionsByID[4]?.isAvailableForDisplay ?? false)
-        XCTAssertFalse(optionsByID[5]?.isAvailableForDisplay ?? true)
+        XCTAssertTrue(optionsByID[5]?.isAvailableForDisplay ?? false)
         XCTAssertFalse(optionsByID[6]?.isAvailableForDisplay ?? true)
+        XCTAssertEqual(optionsByID[6]?.unavailableReason, .inactive)
+        XCTAssertEqual(snapshot.effectiveCapacity.availableAccounts, options.filter(\.isAvailableForDisplay).count)
         XCTAssertEqual(
-            snapshot?.effectiveCapacity.nextRecoveryAt,
+            snapshot.effectiveCapacity.nextRecoveryAt,
             options.compactMap(\.nextRecoveryAt).min()
         )
     }
@@ -651,7 +808,9 @@ final class Sub2APIPoolMonitorTests: XCTestCase {
             maximumPages: 10,
             staleAfter: 900,
             minimumRefreshInterval: 30,
-            usageRefreshInterval: 600
+            usageRefreshInterval: 600,
+            usageReadbackAttempts: 1,
+            usageReadbackDelay: .milliseconds(1)
         )
     }
 
@@ -732,7 +891,7 @@ final class Sub2APIPoolMonitorTests: XCTestCase {
         id: Int64,
         plan: String = "plus",
         status: String = "active",
-        fiveHourUsedPercent: Double,
+        fiveHourUsedPercent: Double?,
         fiveHourResetAt: Date? = nil,
         sevenDayUsedPercent: Double,
         sevenDayResetAt: Date? = nil,
@@ -741,10 +900,12 @@ final class Sub2APIPoolMonitorTests: XCTestCase {
     ) throws -> Sub2APIAccountPayload {
         let formatter = ISO8601DateFormatter()
         var extra: [String: Any] = [
-            "codex_5h_used_percent": fiveHourUsedPercent,
             "codex_7d_used_percent": sevenDayUsedPercent,
             "codex_usage_updated_at": usageUpdatedAt
         ]
+        if let fiveHourUsedPercent {
+            extra["codex_5h_used_percent"] = fiveHourUsedPercent
+        }
         if let fiveHourResetAt {
             extra["codex_5h_reset_at"] = formatter.string(from: fiveHourResetAt)
         }

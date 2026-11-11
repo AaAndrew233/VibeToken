@@ -109,9 +109,13 @@ enum CopyKey: String, Sendable {
     case account
     case accountRateLimited
     case accountUnavailable
+    case accountInactive
+    case accountPaused
+    case accountOverloaded
+    case accountCoolingDown
+    case accountQuotaExhausted
     case availableAccountTab
     case unavailableAccountTab
-    case subscriptionExpires
     case saveConfiguration
     case capacityConfigurationHint
     case noAccountsFound
@@ -234,18 +238,22 @@ enum Localizer {
         .configureConnection: "连接设置",
         .configureAccountCapacity: "账号额度",
         .detectedPlan: "套餐",
-        .capacityType: "倍数",
+        .capacityType: "估算倍数",
         .account: "账号",
         .accountRateLimited: "限流",
         .accountUnavailable: "不可用",
+        .accountInactive: "后台停用或异常",
+        .accountPaused: "后台暂停调度",
+        .accountOverloaded: "暂时过载",
+        .accountCoolingDown: "临时冷却",
+        .accountQuotaExhausted: "额度耗尽",
         .availableAccountTab: "可用账号",
         .unavailableAccountTab: "不可用账号",
-        .subscriptionExpires: "套餐到期",
         .saveConfiguration: "保存配置",
-        .capacityConfigurationHint: "额度来自最近一次正式刷新；仅 Pro 账号需要确认额度倍数。",
+        .capacityConfigurationHint: "Pro 套餐自动识别，可手动调整；估算倍数独立保存，不按月费换算。",
         .noAccountsFound: "未找到可同步账号",
         .selectCapacityType: "请选择",
-        .unconfiguredCapacity: "待配置额度",
+        .unconfiguredCapacity: "权重未确认",
         .serverAddress: "服务地址",
         .adminEmail: "管理员邮箱",
         .password: "密码",
@@ -353,18 +361,22 @@ enum Localizer {
         .configureConnection: "Connection Settings",
         .configureAccountCapacity: "Account Capacity",
         .detectedPlan: "Plan",
-        .capacityType: "Multiplier",
+        .capacityType: "Est. weight",
         .account: "Account",
         .accountRateLimited: "Rate Limited",
         .accountUnavailable: "Unavailable",
+        .accountInactive: "Disabled or errored",
+        .accountPaused: "Scheduling paused",
+        .accountOverloaded: "Overloaded",
+        .accountCoolingDown: "Cooling down",
+        .accountQuotaExhausted: "Quota exhausted",
         .availableAccountTab: "Available Accounts",
         .unavailableAccountTab: "Unavailable Accounts",
-        .subscriptionExpires: "Plan expires",
         .saveConfiguration: "Save Configuration",
-        .capacityConfigurationHint: "Quotas come from the latest verified refresh. Only Pro accounts need a confirmed multiplier.",
+        .capacityConfigurationHint: "Pro plans are detected automatically and can be adjusted. Estimated weights are saved separately, not derived from price.",
         .noAccountsFound: "No syncable accounts found",
         .selectCapacityType: "Select",
-        .unconfiguredCapacity: "Capacity Not Set",
+        .unconfiguredCapacity: "Weight unknown",
         .serverAddress: "Server Address",
         .adminEmail: "Admin Email",
         .password: "Password",

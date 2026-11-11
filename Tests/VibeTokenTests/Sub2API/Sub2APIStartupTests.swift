@@ -235,8 +235,88 @@ final class Sub2APIStartupTests: XCTestCase {
         XCTAssertEqual(state.sub2APIStatus, .connected)
     }
 
+    func testSavingCapacityConfigurationForcesVerifiedRefreshBeforeSuccess() async throws {
+        let client = CapacityRefreshSub2APIClient()
+        let store = MemoryCapacityConfigurationStore()
+        let state = try makeRecoveryState(client: client, capacityConfigurationStore: store)
+
+        let initialRefresh = await state.refresh(forceRemote: true)
+        XCTAssertTrue(initialRefresh)
+        XCTAssertEqual(state.sub2APIAccountCapacityOptions.first?.quotaStatus,
+                       .weekly(sevenDayRemainingPercent: 80))
+
+        let saved = await state.saveSub2APICapacitySelections(
+            [1: .pro5], proPlansByAccountID: [1: .pro100]
+        )
+        let refreshCount = await client.usageRefreshCount
+
+        XCTAssertTrue(saved)
+        XCTAssertEqual(refreshCount, 2, "保存配置后必须再次执行正式额度刷新")
+        XCTAssertEqual(state.sub2APIStatus, .connected)
+        XCTAssertNil(state.sub2APILastError)
+        XCTAssertEqual(state.sub2APIAccountCapacityOptions.first?.selectedTier, .pro5)
+        XCTAssertEqual(state.sub2APIAccountCapacityOptions.first?.quotaStatus,
+                       .weekly(sevenDayRemainingPercent: 35))
+        XCTAssertEqual(try XCTUnwrap(state.sub2APIPoolSnapshot?.displayedRemainingFraction),
+                       0.35, accuracy: 0.000_001)
+        XCTAssertEqual(try store.load()?.proPlansByAccountID(
+            serverIdentifier: "https://relay.example.com/api/v1"
+        ), [1: .pro100])
+    }
+
+    func testSavingCapacityConfigurationKeepsSelectionsWhenVerificationFails() async throws {
+        let client = CapacityRefreshSub2APIClient()
+        let store = MemoryCapacityConfigurationStore()
+        let state = try makeRecoveryState(client: client, capacityConfigurationStore: store)
+        let initialRefresh = await state.refresh(forceRemote: true)
+        XCTAssertTrue(initialRefresh)
+        await client.setIncludesTimestamp(false)
+
+        let saved = await state.saveSub2APICapacitySelections(
+            [1: .pro20], proPlansByAccountID: [1: .pro500]
+        )
+        let refreshCount = await client.usageRefreshCount
+        let error = Sub2APIError.usageRefreshIncomplete(refreshed: 0, total: 1)
+
+        XCTAssertFalse(saved, "配置保存成功不能冒充额度验真成功")
+        XCTAssertEqual(refreshCount, 2)
+        XCTAssertEqual(state.sub2APIStatus, .failed(error))
+        XCTAssertEqual(state.sub2APILastError, error)
+        XCTAssertNil(state.sub2APIPoolSnapshot)
+        XCTAssertEqual(state.sub2APIAccountCapacityOptions.count, 1)
+        XCTAssertEqual(state.sub2APIAccountCapacityOptions.first?.selectedTier, .pro20)
+        XCTAssertEqual(state.sub2APIAccountCapacityOptions.first?.proPlan, .pro500)
+        XCTAssertEqual(state.sub2APIAccountCapacityOptions.first?.quotaStatus, .unobserved)
+        XCTAssertEqual(try store.load()?.tiersByAccountID(
+            serverIdentifier: "https://relay.example.com/api/v1"
+        ), [1: .pro20])
+        XCTAssertEqual(try store.load()?.proPlansByAccountID(
+            serverIdentifier: "https://relay.example.com/api/v1"
+        ), [1: .pro500])
+    }
+
+    func testCapacityConfigurationLoadsAccountsAfterInitialVerificationFailure() async throws {
+        let client = CapacityRefreshSub2APIClient(includesTimestamp: false)
+        let state = try makeRecoveryState(client: client)
+        let initialRefresh = await state.refresh(forceRemote: true)
+        XCTAssertFalse(initialRefresh)
+        XCTAssertTrue(state.sub2APIAccountCapacityOptions.isEmpty)
+
+        await state.prepareSub2APICapacityConfiguration()
+        let refreshCount = await client.usageRefreshCount
+
+        XCTAssertEqual(refreshCount, 2)
+        XCTAssertEqual(state.sub2APILastError, .usageRefreshIncomplete(refreshed: 0, total: 1))
+        XCTAssertNil(state.sub2APIPoolSnapshot)
+        XCTAssertEqual(state.sub2APIAccountCapacityOptions.count, 1)
+        XCTAssertEqual(state.sub2APIAccountCapacityOptions.first?.proPlan, .pro100)
+        XCTAssertEqual(state.sub2APIAccountCapacityOptions.first?.quotaStatus, .unobserved)
+        XCTAssertEqual(state.sub2APIAccountCapacityOptions.first?.isAvailableForDisplay, true)
+    }
+
     private func makeRecoveryState(
-        client: any Sub2APIClientServing
+        client: any Sub2APIClientServing,
+        capacityConfigurationStore: MemoryCapacityConfigurationStore = MemoryCapacityConfigurationStore()
     ) throws -> AppState {
         let database = try VibeTokenDatabase.inMemory()
         let connection = Sub2APIConnection(
@@ -249,7 +329,7 @@ final class Sub2APIStartupTests: XCTestCase {
                 session: Sub2APISession(accessToken: "test", refreshToken: nil, expiresAt: nil)
             ),
             connectionStore: CountingConnectionStore(connection: connection),
-            capacityConfigurationStore: MemoryCapacityConfigurationStore(),
+            capacityConfigurationStore: capacityConfigurationStore,
             pageSize: 100,
             maximumPages: 100,
             staleAfter: 15 * 60,
@@ -399,6 +479,56 @@ private actor RecoveryTimingSub2APIClient: Sub2APIClientServing {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.string(from: date)
+    }
+}
+
+private actor CapacityRefreshSub2APIClient: Sub2APIClientServing {
+    private var includesTimestamp: Bool
+    private(set) var usageRefreshCount = 0
+
+    init(includesTimestamp: Bool = true) {
+        self.includesTimestamp = includesTimestamp
+    }
+
+    func setIncludesTimestamp(_ value: Bool) {
+        includesTimestamp = value
+    }
+
+    func login(baseURL: URL, email: String, password: String) async throws -> Sub2APILoginResult {
+        throw Sub2APIError.serverUnavailable
+    }
+
+    func completeTwoFactor(baseURL: URL, tempToken: String, code: String) async throws -> Sub2APISession {
+        throw Sub2APIError.serverUnavailable
+    }
+
+    func fetchAccounts(
+        baseURL: URL,
+        pageSize: Int,
+        maximumPages: Int
+    ) async throws -> [Sub2APIAccountPayload] {
+        var extra: [String: Any] = [
+            "codex_7d_used_percent": usageRefreshCount >= 2 ? 65 : 20
+        ]
+        if includesTimestamp {
+            extra["codex_usage_updated_at"] = ISO8601DateFormatter().string(
+                from: Date().addingTimeInterval(TimeInterval(usageRefreshCount))
+            )
+        }
+        let data = try JSONSerialization.data(withJSONObject: [
+            "id": 1,
+            "status": "active",
+            "schedulable": true,
+            "credentials": ["plan_type": "prolite"],
+            "extra": extra
+        ])
+        return [try JSONDecoder().decode(Sub2APIAccountPayload.self, from: data)]
+    }
+
+    func refreshAccountCredentials(baseURL: URL, accountIDs: [Int64]) async throws {}
+
+    func refreshAccountUsage(baseURL: URL, accountIDs: [Int64]) async throws {
+        usageRefreshCount += 1
     }
 }
 

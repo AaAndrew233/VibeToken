@@ -10,6 +10,8 @@ struct Sub2APIConnectionView: View {
     @State private var verificationCode = ""
     @State private var confirmDisconnect = false
     @State private var selectedTiers: [Int64: Sub2APICapacityTier] = [:]
+    @State private var selectedProPlans: [Int64: Sub2APIProPlan] = [:]
+    @State private var initializedCapacityIDs: Set<Int64> = []
     @State private var selectedCapacityTab = CapacityTab.available
 
     private enum CapacityTab {
@@ -18,9 +20,9 @@ struct Sub2APIConnectionView: View {
     }
 
     private enum TableLayout {
-        static let planWidth: CGFloat = 52
+        static let planWidth: CGFloat = 98
         static let quotaWidth: CGFloat = 120
-        static let multiplierWidth: CGFloat = 72
+        static let multiplierWidth: CGFloat = 82
         static let trailingWidth: CGFloat = planWidth + quotaWidth + multiplierWidth + 16
     }
 
@@ -58,7 +60,7 @@ struct Sub2APIConnectionView: View {
             }
         }
         .frame(
-            width: state.sub2APIConnection == nil ? 420 : 468,
+            width: state.sub2APIConnection == nil ? 420 : 528,
             height: state.sub2APIConnection == nil ? 350 : 560
         )
         .background(.regularMaterial)
@@ -311,37 +313,48 @@ struct Sub2APIConnectionView: View {
                     .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
                     .help(option.displayName ?? "\(state.text(.account)) #\(option.accountID)")
-                subscriptionExpiryText(option.subscriptionExpiresAt)
                 if option.runtimeStatus != .available {
-                    accountRuntimeBadge(option.runtimeStatus)
+                    accountRuntimeBadge(option)
+                } else if option.quotaStatus.isExhausted {
+                    runtimeBadge(state.text(.accountQuotaExhausted), color: .orange)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 8) {
-                Text(option.detectedPlan)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(
-                        isDetectedPro(option)
-                            ? AnyShapeStyle(.blue)
-                            : AnyShapeStyle(.secondary)
-                    )
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(
-                        isDetectedPro(option)
-                            ? Color.blue.opacity(0.10)
-                            : Color.secondary.opacity(0.08),
-                        in: Capsule()
-                    )
+                if isDetectedPro(option) {
+                    Picker("", selection: Binding(
+                        get: { selectedProPlans[option.accountID] },
+                        set: { selectedProPlans[option.accountID] = $0 }
+                    )) {
+                        Text(state.language == .simplifiedChinese ? "Pro 未确认" : "Pro unknown")
+                            .tag(nil as Sub2APIProPlan?)
+                        ForEach(Sub2APIProPlan.allCases) { plan in
+                            Text(plan.displayName).tag(Optional(plan))
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .controlSize(.small)
                     .frame(width: TableLayout.planWidth, alignment: .leading)
+                    .disabled(state.sub2APIStatus.isBusy)
+                    .accessibilityLabel(state.text(.detectedPlan))
+                } else {
+                    Text(option.detectedPlan)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Color.secondary.opacity(0.08), in: Capsule())
+                        .frame(width: TableLayout.planWidth, alignment: .leading)
+                }
 
                 accountQuotaView(option.quotaPresentation)
                     .frame(width: TableLayout.quotaWidth, alignment: .leading)
 
                 if isDetectedPro(option) {
                     Picker("", selection: capacitySelectionBinding(for: option)) {
-                        Text(state.text(.selectCapacityType))
+                        Text(state.language == .simplifiedChinese ? "未设置" : "Not set")
                             .tag(nil as Sub2APICapacityTier?)
                         Text("5x").tag(Optional(Sub2APICapacityTier.pro5))
                         Text("10x").tag(Optional(Sub2APICapacityTier.pro10))
@@ -355,7 +368,7 @@ struct Sub2APIConnectionView: View {
                     .disabled(state.sub2APIStatus.isBusy)
                     .accessibilityLabel(state.text(.capacityType))
                 } else {
-                    Text("1x")
+                    Text(option.selectedTier == .plus ? "1x" : "--")
                         .font(.system(size: 11, weight: .medium, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
@@ -374,14 +387,17 @@ struct Sub2APIConnectionView: View {
     }
 
     @ViewBuilder
-    private func accountRuntimeBadge(_ status: Sub2APIAccountRuntimeStatus) -> some View {
-        switch status {
+    private func accountRuntimeBadge(_ option: Sub2APIAccountCapacityOption) -> some View {
+        switch option.runtimeStatus {
         case .available:
             EmptyView()
         case .rateLimited:
             runtimeBadge(state.text(.accountRateLimited), color: .orange)
         case .unavailable:
-            runtimeBadge(state.text(.accountUnavailable), color: .red)
+            runtimeBadge(
+                state.text(option.unavailableReason?.localizationKey ?? .accountUnavailable),
+                color: .red
+            )
         }
     }
 
@@ -398,6 +414,12 @@ struct Sub2APIConnectionView: View {
     @ViewBuilder
     private func accountQuotaView(_ presentation: Sub2APIAccountQuotaPresentation) -> some View {
         switch presentation {
+        case .weekly(let remaining, let resetAt):
+            VStack(alignment: .leading, spacing: 3) {
+                quotaInline(label: "7d", remainingPercent: remaining)
+                windowResetLine(label: "7d", date: resetAt)
+            }
+            .accessibilityElement(children: .combine)
         case .current(
             let fiveHourRemainingPercent,
             let sevenDayRemainingPercent,
@@ -435,17 +457,6 @@ struct Sub2APIConnectionView: View {
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
             }
-        }
-    }
-
-    @ViewBuilder
-    private func subscriptionExpiryText(_ date: Date?) -> some View {
-        if let date {
-            Text("\(state.text(.subscriptionExpires)) \(subscriptionExpiryDateText(date))")
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(date <= Date() ? .red : .secondary)
-                .lineLimit(1)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -496,17 +507,6 @@ struct Sub2APIConnectionView: View {
             + " · 7d \(accountResetText(sevenDayResetAt))"
     }
 
-    private func subscriptionExpiryDateText(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = state.language == .simplifiedChinese
-            ? Locale(identifier: "zh_Hans_CN")
-            : Locale(identifier: "en_US")
-        formatter.dateFormat = state.language == .simplifiedChinese
-            ? "yyyy/M/d HH:mm"
-            : "MMM d, yyyy HH:mm"
-        return formatter.string(from: date)
-    }
-
     private func resetHelp(
         fiveHourResetAt: Date?,
         sevenDayResetAt: Date?
@@ -529,6 +529,7 @@ struct Sub2APIConnectionView: View {
 
     private func isUnconfiguredPro(_ option: Sub2APIAccountCapacityOption) -> Bool {
         isDetectedPro(option) && selectedTiers[option.accountID]?.isProCapacity != true
+            && selectedProPlans[option.accountID] == nil
     }
 
     private var connectedFooter: some View {
@@ -554,7 +555,9 @@ struct Sub2APIConnectionView: View {
 
                 Button {
                     Task {
-                        if await state.saveSub2APICapacitySelections(selectedTiers) {
+                        if await state.saveSub2APICapacitySelections(
+                            selectedTiers, proPlansByAccountID: selectedProPlans
+                        ) {
                             isPresented = false
                         }
                     }
@@ -575,13 +578,12 @@ struct Sub2APIConnectionView: View {
 
     private func syncSelectedTiers() {
         for option in state.sub2APIAccountCapacityOptions {
+            guard initializedCapacityIDs.insert(option.accountID).inserted else { continue }
             if isDetectedPro(option) {
-                let current = selectedTiers[option.accountID]
-                if current?.isProCapacity != true {
-                    selectedTiers[option.accountID] = option.selectedTier
-                }
+                selectedTiers[option.accountID] = option.selectedTier
+                selectedProPlans[option.accountID] = option.proPlan
             } else {
-                selectedTiers[option.accountID] = .plus
+                selectedTiers[option.accountID] = option.selectedTier
             }
         }
     }
@@ -595,7 +597,7 @@ struct Sub2APIConnectionView: View {
     }
 
     private func isDetectedPro(_ option: Sub2APIAccountCapacityOption) -> Bool {
-        option.detectedPlan.caseInsensitiveCompare("Pro") == .orderedSame
+        option.isPro
     }
 
     private func fieldLabel(_ value: String) -> some View {

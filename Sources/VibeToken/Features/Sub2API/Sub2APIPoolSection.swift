@@ -169,8 +169,8 @@ struct Sub2APIPoolSection: View {
 
     private func unconfiguredProMessage(_ count: Int) -> String {
         state.language == .simplifiedChinese
-            ? "发现 \(count) 个新的 Pro 账号，请选择额度类型"
-            : "\(count) new Pro account\(count == 1 ? "" : "s") need a capacity type"
+            ? "\(count) 个账号权重未确认，暂不汇总跨套餐额度"
+            : "Weights unknown for \(count) accounts; cross-plan total unavailable"
     }
 
     private func availableAccounts(
@@ -211,7 +211,9 @@ struct Sub2APIPoolSection: View {
     ) -> some View {
         let hasCapacity = snapshot.totalCapacityAccounts > 0
         return VStack(alignment: .leading, spacing: 7) {
-            Text(state.text(.windowBalances))
+            Text(snapshot.hasEstimatedWeights
+                 ? (state.language == .simplifiedChinese ? "剩余额度（估算）" : "Remaining (estimated)")
+                 : state.text(.windowBalances))
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
             Text(poolCapacityText(snapshot))
@@ -329,12 +331,15 @@ struct Sub2APIPoolSection: View {
         guard snapshot.unconfiguredCapacityAccounts == 0 else {
             return "\(state.text(.unconfiguredCapacity)) \(snapshot.unconfiguredCapacityAccounts)"
         }
-        let value = snapshot.effectiveCapacity
-        guard value.totalCapacityWeight > 0 else { return state.text(.noWindowData) }
-        let fiveHour = value.fiveHourRemainingEquivalentAccounts / value.totalCapacityWeight
-        let sevenDay = value.sevenDayRemainingEquivalentAccounts / value.totalCapacityWeight
-        return "5h \(capacityPercentText(fiveHour))"
-            + " · 7d \(capacityPercentText(sevenDay))"
+        guard snapshot.displayedRemainingFraction != nil else { return state.text(.noWindowData) }
+        var windows: [String] = []
+        if let remaining = snapshot.fiveHour.remainingFraction {
+            windows.append("5h \(capacityPercentText(remaining))")
+        }
+        if let remaining = snapshot.sevenDay.remainingFraction {
+            windows.append("7d \(capacityPercentText(remaining))")
+        }
+        return windows.joined(separator: " · ")
     }
 
     private func capacityPercentText(_ equivalentAccounts: Double) -> String {
@@ -355,11 +360,13 @@ struct Sub2APIPoolSection: View {
     }
 
     private func limitingText(_ snapshot: Sub2APIPoolSnapshot) -> String? {
-        guard snapshot.unconfiguredCapacityAccounts == 0 else { return nil }
-        let value = snapshot.effectiveCapacity
-        guard value.totalCapacityWeight > 0 else { return nil }
-        let fiveHour = value.fiveHourRemainingEquivalentAccounts
-        let sevenDay = value.sevenDayRemainingEquivalentAccounts
+        guard snapshot.displayedRemainingFraction != nil,
+              let sevenDay = snapshot.sevenDay.remainingFraction else { return nil }
+        guard let fiveHour = snapshot.fiveHour.remainingFraction else {
+            return state.text(.limitedBySevenDay)
+        }
+        // 不同账号集合的窗口不能互相比大小来判断整池瓶颈。
+        guard snapshot.fiveHour.observedAccounts == snapshot.sevenDay.observedAccounts else { return nil }
         if abs(fiveHour - sevenDay) < 0.000_1 {
             return state.text(.limitedByBothWindows)
         }

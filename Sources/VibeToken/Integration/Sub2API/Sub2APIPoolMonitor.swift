@@ -15,6 +15,8 @@ actor Sub2APIPoolMonitor {
 
     private var cachedSnapshot: Sub2APIPoolSnapshot?
     private var cachedAccountPayloads: [Sub2APIAccountPayload] = []
+    // 配置预览与已验真的额度分开，首次缺少窗口时仍可选择套餐。
+    private var configurationAccountPayloads: [Sub2APIAccountPayload]?
     private var cachedConnection: Sub2APIConnection?
     private var lastUsageRefreshAt: Date?
     private var lastSuccessfulUsageRefreshAt: Date?
@@ -127,6 +129,7 @@ actor Sub2APIPoolMonitor {
         let usageAccountIDs = activePhysicalAccountIDs(in: payloads)
         let accountSetChanged = cachedSnapshot != nil
             && usageAccountIDs != activePhysicalAccountIDs(in: cachedAccountPayloads)
+        configurationAccountPayloads = payloads
         if force {
             supportsUsageRefresh = true
         }
@@ -148,6 +151,7 @@ actor Sub2APIPoolMonitor {
             }
         }
         cachedAccountPayloads = payloads
+        configurationAccountPayloads = payloads
         let snapshot = try aggregateCachedAccounts(fetchedAt: fetchedAt)
         cachedSnapshot = snapshot
         return snapshot
@@ -173,6 +177,7 @@ actor Sub2APIPoolMonitor {
 
     func capacityOptions() throws -> [Sub2APIAccountCapacityOption] {
         let tiers = try savedTiers()
+        let proPlans = try savedProPlans()
         let observedAt = Date()
         let payloads = physicalAccountPayloads()
         let prioritizedPayloads = payloads.filter(\.requiresManualCapacityTier)
@@ -183,37 +188,25 @@ actor Sub2APIPoolMonitor {
             )
             let snapshot = payload.snapshot(
                 now: observedAt,
-                capacityTier: selectedTier
+                capacityTier: selectedTier,
+                proPlan: proPlans[payload.id]
             )
-            let quotaStatus = Sub2APIAccountQuotaStatus(
-                fiveHourUsedPercent: snapshot.fiveHourUsedPercent,
-                sevenDayUsedPercent: snapshot.sevenDayUsedPercent,
-                usageUpdatedAt: snapshot.usageUpdatedAt,
-                observedAt: observedAt,
-                staleAfter: staleAfter,
-                explicitlyLimited: snapshot.hasExplicitZeroCapacityState(at: observedAt)
-            )
+            let quotaStatus = snapshot.quotaStatus(at: observedAt, staleAfter: staleAfter)
             return Sub2APIAccountCapacityOption(
                 accountID: payload.id,
                 displayName: payload.capacityDisplayName,
                 detectedPlan: payload.detectedPlan,
                 selectedTier: selectedTier,
-                subscriptionExpiresAt: snapshot.subscriptionExpiresAt,
-                runtimeStatus: Sub2APIAccountRuntimeStatus(
-                    status: snapshot.status,
-                    schedulable: snapshot.schedulable,
-                    rateLimitResetAt: snapshot.rateLimitResetAt,
-                    overloadUntil: snapshot.overloadUntil,
-                    tempUnschedulableUntil: snapshot.tempUnschedulableUntil,
-                    observedAt: observedAt
-                ),
+                runtimeStatus: snapshot.runtimeStatus(at: observedAt),
                 quotaStatus: quotaStatus,
                 fiveHourResetAt: snapshot.fiveHourResetAt,
                 sevenDayResetAt: snapshot.sevenDayResetAt,
                 nextRecoveryAt: snapshot.reliableEstimatedRecoveryAt(
                     after: observedAt,
                     staleAfter: staleAfter
-                )
+                ),
+                unavailableReason: snapshot.unavailableReason(at: observedAt),
+                proPlan: snapshot.proPlan
             )
         }
         return Sub2APIAccountCapacityOption.sorted(options)
@@ -226,7 +219,7 @@ actor Sub2APIPoolMonitor {
         let submitted = Dictionary(
             selections
                 .filter { visibleAccountIDs.contains($0.accountID) }
-                .map { ($0.accountID, $0.tier) },
+                .map { ($0.accountID, $0) },
             uniquingKeysWith: { _, latest in latest }
         )
         guard let serverIdentifier = cachedConnection?.baseURL.absoluteString else {
@@ -234,19 +227,24 @@ actor Sub2APIPoolMonitor {
         }
         let savedConfiguration = try capacityConfigurationStore.load() ?? .empty
         var merged = savedConfiguration.tiersByAccountID(serverIdentifier: serverIdentifier)
+        var plans = savedConfiguration.proPlansByAccountID(serverIdentifier: serverIdentifier)
         for payload in physicalAccountPayloads() {
             if payload.requiresManualCapacityTier {
-                guard let tier = submitted[payload.id], tier.isProCapacity else {
+                guard let selection = submitted[payload.id],
+                      selection.tier?.isProCapacity == true || selection.proPlan != nil else {
                     throw Sub2APIError.capacityConfigurationIncomplete
                 }
-                merged[payload.id] = tier
+                merged[payload.id] = selection.tier?.isProCapacity == true ? selection.tier : nil
+                plans[payload.id] = selection.proPlan
             } else {
-                merged[payload.id] = .plus
+                merged[payload.id] = payload.resolvedCapacityTier(configuredTier: nil)
+                plans[payload.id] = nil
             }
         }
         let configuration = savedConfiguration.updating(
             serverIdentifier: serverIdentifier,
-            tiersByAccountID: merged
+            tiersByAccountID: merged,
+            proPlansByAccountID: plans
         )
         try capacityConfigurationStore.save(configuration)
 
@@ -260,6 +258,7 @@ actor Sub2APIPoolMonitor {
         pendingTwoFactor = nil
         cachedSnapshot = nil
         cachedAccountPayloads = []
+        configurationAccountPayloads = nil
         cachedConnection = nil
         lastUsageRefreshAt = nil
         lastSuccessfulUsageRefreshAt = nil
@@ -275,11 +274,13 @@ actor Sub2APIPoolMonitor {
 
     private func aggregateCachedAccounts(fetchedAt: Date) throws -> Sub2APIPoolSnapshot {
         let tiers = try savedTiers()
+        let proPlans = try savedProPlans()
         return Sub2APIPoolAggregator.aggregate(
             accounts: cachedAccountPayloads.map { payload in
                 payload.snapshot(
                     now: fetchedAt,
-                    capacityTier: tiers[payload.id]
+                    capacityTier: tiers[payload.id],
+                    proPlan: proPlans[payload.id]
                 )
             },
             fetchedAt: fetchedAt,
@@ -336,6 +337,7 @@ actor Sub2APIPoolMonitor {
             uniquingKeysWith: { _, latest in latest }
         )
         let expectedIDs = activePhysicalAccountIDs(in: baselinePayloads)
+        let proPlans = try savedProPlans()
         var latestPayloads = baselinePayloads
         var latestVerifiedCount = 0
 
@@ -363,7 +365,8 @@ actor Sub2APIPoolMonitor {
                           current,
                           comparedWith: baseline,
                           startedAt: startedAt,
-                          verificationDate: verificationDate
+                          verificationDate: verificationDate,
+                          proPlan: proPlans[accountID]
                       )
                 else { return }
                 count += 1
@@ -384,19 +387,21 @@ actor Sub2APIPoolMonitor {
         _ current: Sub2APIAccountPayload,
         comparedWith baseline: Sub2APIAccountPayload,
         startedAt: Date,
-        verificationDate: Date
+        verificationDate: Date,
+        proPlan: Sub2APIProPlan?
     ) -> Bool {
-        let currentSnapshot = current.snapshot(now: verificationDate)
+        let currentSnapshot = current.snapshot(now: verificationDate, proPlan: proPlan)
         if !currentSnapshot.schedulable
-            || currentSnapshot.hasExplicitZeroCapacityState(at: verificationDate) {
+            || currentSnapshot.hasActiveRateLimit(at: verificationDate)
+            || currentSnapshot.isTemporarilyUnavailable(at: verificationDate) {
             return true
         }
 
-        guard let fiveHour = currentSnapshot.fiveHourUsedPercent,
+        let fiveHourIsValid = !currentSnapshot.requiresFiveHourWindow
+            || currentSnapshot.fiveHourUsedPercent.map { $0.isFinite && (0...100).contains($0) } == true
+        guard fiveHourIsValid,
               let sevenDay = currentSnapshot.sevenDayUsedPercent,
-              fiveHour.isFinite,
               sevenDay.isFinite,
-              (0...100).contains(fiveHour),
               (0...100).contains(sevenDay),
               let currentUpdatedAt = currentSnapshot.usageUpdatedAt
         else {
@@ -425,9 +430,15 @@ actor Sub2APIPoolMonitor {
             .tiersByAccountID(serverIdentifier: serverIdentifier) ?? [:]
     }
 
+    private func savedProPlans() throws -> [Int64: Sub2APIProPlan] {
+        guard let serverIdentifier = cachedConnection?.baseURL.absoluteString else { return [:] }
+        return try capacityConfigurationStore.load()?
+            .proPlansByAccountID(serverIdentifier: serverIdentifier) ?? [:]
+    }
+
     private func physicalAccountPayloads() -> [Sub2APIAccountPayload] {
         Dictionary(
-            cachedAccountPayloads.map { ($0.id, $0) },
+            (configurationAccountPayloads ?? cachedAccountPayloads).map { ($0.id, $0) },
             uniquingKeysWith: { _, latest in latest }
         )
         .values

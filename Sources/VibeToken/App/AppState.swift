@@ -419,21 +419,23 @@ final class AppState {
         guard sub2APIConnection != nil, !sub2APIStatus.isBusy else { return }
         if sub2APIAccountCapacityOptions.isEmpty {
             _ = await refreshSub2APIPool(force: true)
-        } else {
-            await loadSub2APICapacityOptions()
         }
+        await loadSub2APICapacityOptions()
     }
 
     @discardableResult
     func saveSub2APICapacitySelections(
-        _ tiersByAccountID: [Int64: Sub2APICapacityTier]
+        _ tiersByAccountID: [Int64: Sub2APICapacityTier],
+        proPlansByAccountID: [Int64: Sub2APIProPlan] = [:]
     ) async -> Bool {
         guard sub2APIConnection != nil, !sub2APIStatus.isBusy else { return false }
         sub2APIStatus = .syncing
         sub2APILastError = nil
         do {
-            let selections = tiersByAccountID.map {
-                Sub2APIAccountCapacitySelection(accountID: $0.key, tier: $0.value)
+            let selections = Set(tiersByAccountID.keys).union(proPlansByAccountID.keys).map {
+                Sub2APIAccountCapacitySelection(
+                    accountID: $0, tier: tiersByAccountID[$0], proPlan: proPlansByAccountID[$0]
+                )
             }
             if let snapshot = try await sub2APIPoolMonitor.saveCapacitySelections(selections) {
                 sub2APIPoolSnapshot = snapshot
@@ -441,7 +443,10 @@ final class AppState {
             }
             sub2APIAccountCapacityOptions = try await sub2APIPoolMonitor.capacityOptions()
             sub2APIStatus = .connected
-            return true
+            // 修改窗口适用范围后重新验真，不将配置保存等同于额度刷新成功。
+            let refreshed = await refreshSub2APIPool(force: true)
+            if !refreshed { await loadSub2APICapacityOptions() }
+            return refreshed
         } catch let error as Sub2APIError {
             sub2APILastError = error
             sub2APIStatus = .failed(error)
@@ -573,7 +578,6 @@ final class AppState {
                 displayName: displayName,
                 detectedPlan: isPro ? "Pro" : "Plus",
                 selectedTier: isPro ? .pro20 : .plus,
-                subscriptionExpiresAt: id == 1 ? now.addingTimeInterval(45 * 24 * 60 * 60) : nil,
                 runtimeStatus: runtimeStatus,
                 quotaStatus: quotaStatus,
                 fiveHourResetAt: now.addingTimeInterval(TimeInterval(id) * 15 * 60),

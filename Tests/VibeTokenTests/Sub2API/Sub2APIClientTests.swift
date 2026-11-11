@@ -3,6 +3,102 @@ import XCTest
 @testable import VibeToken
 
 final class Sub2APIClientTests: XCTestCase {
+    func testProVariantsKeepTheirPlanAndAcceptManualWeights() throws {
+        let cases: [(String, Sub2APIProPlan)] = [
+            ("prolite", .pro100), (" PRO_LITE ", .pro100),
+            ("pro", .pro200), ("chatgpt-pro", .pro200),
+            ("promax", .pro500), ("Pro Max", .pro500)
+        ]
+        for (wirePlan, expectedPlan) in cases {
+            let data = try JSONSerialization.data(withJSONObject: [
+                "id": 1, "status": "active", "schedulable": true,
+                "credentials": ["plan_type": wirePlan]
+            ])
+            let payload = try JSONDecoder().decode(Sub2APIAccountPayload.self, from: data)
+            XCTAssertTrue(payload.requiresManualCapacityTier, wirePlan)
+            XCTAssertEqual(payload.snapshot(now: Date()).proPlan, expectedPlan, wirePlan)
+            XCTAssertNil(payload.resolvedCapacityTier(configuredTier: nil), wirePlan)
+            XCTAssertNil(payload.resolvedCapacityTier(configuredTier: .plus), wirePlan)
+            for tier in [Sub2APICapacityTier.pro5, .pro10, .pro20] {
+                XCTAssertEqual(payload.resolvedCapacityTier(configuredTier: tier), tier, wirePlan)
+            }
+        }
+    }
+
+    func testZeroLengthWindowDoesNotDisplayFullFiveHourQuota() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let timestamp = ISO8601DateFormatter().string(from: now)
+        let windowMetadata: [[String: Any]] = [
+            ["codex_5h_window_minutes": 0],
+            ["codex_5h_window_minutes": "0"],
+            ["codex_primary_window_minutes": 10_080, "codex_secondary_window_minutes": 0],
+            ["codex_primary_window_minutes": 0, "codex_secondary_window_minutes": 10_080],
+            ["codex_5h_window_minutes": NSNull(), "codex_primary_window_minutes": 10_080,
+             "codex_secondary_window_minutes": 0]
+        ]
+        for plan in ["prolite", "pro", "promax"] {
+            for metadata in windowMetadata {
+                var extra: [String: Any] = [
+                    "codex_5h_used_percent": 0, "codex_5h_reset_at": timestamp,
+                    "codex_7d_used_percent": 89, "codex_usage_updated_at": timestamp
+                ]
+                extra.merge(metadata) { _, latest in latest }
+                let data = try JSONSerialization.data(withJSONObject: [
+                    "id": 1, "status": "active", "schedulable": true,
+                    "credentials": ["plan_type": plan], "extra": extra
+                ])
+                let payload = try JSONDecoder().decode(Sub2APIAccountPayload.self, from: data)
+                let snapshot = payload.snapshot(now: now, capacityTier: .pro5)
+                XCTAssertNil(snapshot.fiveHourUsedPercent, plan)
+                XCTAssertNil(snapshot.fiveHourResetAt, plan)
+                XCTAssertFalse(snapshot.requiresFiveHourWindow, plan)
+                XCTAssertEqual(snapshot.quotaStatus(at: now, staleAfter: 900), .weekly(sevenDayRemainingPercent: 11))
+                let pool = Sub2APIPoolAggregator.aggregate(accounts: [snapshot], fetchedAt: now, staleAfter: 900)
+                XCTAssertEqual(pool.fiveHour.observedAccounts, 0)
+                XCTAssertEqual(try XCTUnwrap(pool.displayedRemainingFraction), 0.11, accuracy: 0.000_001)
+            }
+        }
+    }
+
+    func testProVariantsStillEnforceReportedFiveHourLimits() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let timestamp = ISO8601DateFormatter().string(from: now)
+        for plan in ["prolite", "pro", "promax"] {
+            let body = #"{"id":1,"status":"active","schedulable":true,"credentials":{"plan_type":"\#(plan)"},"extra":{"codex_5h_window_minutes":300,"codex_5h_used_percent":100,"codex_7d_used_percent":3,"codex_usage_updated_at":"\#(timestamp)"}}"#
+            let payload = try JSONDecoder().decode(Sub2APIAccountPayload.self, from: Data(body.utf8))
+            let snapshot = payload.snapshot(now: now, capacityTier: .pro5)
+            XCTAssertTrue(snapshot.requiresFiveHourWindow)
+            XCTAssertEqual(snapshot.quotaStatus(at: now, staleAfter: 900), .current(fiveHourRemainingPercent: 0, sevenDayRemainingPercent: 97))
+            XCTAssertTrue(snapshot.isWindowLimited(at: now, staleAfter: 900))
+        }
+    }
+
+    func testProDetectionDoesNotGuessOtherPlansOrOverwriteManualSelections() throws {
+        for plan in ["plus", "unknown", "free", "self_serve_business_prolite", "future_pro"] {
+            let body = #"{"id":1,"status":"active","schedulable":true,"credentials":{"plan_type":"\#(plan)"}}"#
+            let payload = try JSONDecoder().decode(Sub2APIAccountPayload.self, from: Data(body.utf8))
+            XCTAssertFalse(payload.requiresManualCapacityTier)
+            let snapshot = payload.snapshot(now: Date(), capacityTier: .pro20, proPlan: .pro100)
+            XCTAssertNil(snapshot.proPlan)
+            XCTAssertEqual(snapshot.capacityTier, plan == "plus" ? .plus : nil)
+        }
+        let body = #"{"id":1,"status":"active","schedulable":true,"credentials":{"plan_type":"pro"}}"#
+        let payload = try JSONDecoder().decode(Sub2APIAccountPayload.self, from: Data(body.utf8))
+        let selected = payload.snapshot(now: Date(), capacityTier: .pro10, proPlan: .pro100)
+        XCTAssertEqual(selected.proPlan, .pro100)
+        XCTAssertEqual(selected.capacityTier, .pro10)
+    }
+
+    func testZeroLengthMetadataDoesNotRemoveAnotherExplicitFiveHourLimit() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let timestamp = ISO8601DateFormatter().string(from: now)
+        let body = #"{"id":1,"status":"active","schedulable":true,"credentials":{"plan_type":"prolite"},"extra":{"codex_5h_window_minutes":0,"codex_primary_window_minutes":300,"codex_5h_used_percent":100,"codex_7d_used_percent":3,"codex_usage_updated_at":"\#(timestamp)"}}"#
+        let payload = try JSONDecoder().decode(Sub2APIAccountPayload.self, from: Data(body.utf8))
+        let snapshot = payload.snapshot(now: now, capacityTier: .pro5)
+        XCTAssertTrue(snapshot.requiresFiveHourWindow)
+        XCTAssertTrue(snapshot.quotaStatus(at: now, staleAfter: 900).isExhausted)
+    }
+
     func testLoginStoresOnlyAuthenticatedAdminSession() async throws {
         let loader = StubLoader(responses: [
             response(
@@ -94,13 +190,13 @@ final class Sub2APIClientTests: XCTestCase {
         XCTAssertEqual(snapshot.sevenDayResetAt, now.addingTimeInterval(100))
     }
 
-    func testSubscriptionExpiryIsMappedFromCredentials() throws {
-        let body = #"{"id":11,"status":"active","schedulable":true,"credentials":{"plan_type":"pro","subscription_expires_at":"2026-12-31T00:00:00Z"}}"#
+    func testOldSubscriptionExpiryDoesNotChangeAccountStatus() throws {
+        let body = #"{"id":11,"status":"active","schedulable":true,"credentials":{"plan_type":"pro","subscription_expires_at":"2020-01-01T00:00:00Z"}}"#
         let payload = try JSONDecoder().decode(Sub2APIAccountPayload.self, from: Data(body.utf8))
 
         XCTAssertEqual(
-            payload.snapshot(now: Date()).subscriptionExpiresAt,
-            ISO8601DateFormatter().date(from: "2026-12-31T00:00:00Z")
+            payload.snapshot(now: Date()).runtimeStatus(at: Date()),
+            .available
         )
     }
 
@@ -115,6 +211,24 @@ final class Sub2APIClientTests: XCTestCase {
             snapshot.tempUnschedulableUntil,
             ISO8601DateFormatter().date(from: "2026-08-06T03:00:00Z")
         )
+    }
+
+    func testUnavailableReasonsMatchServerStateWithoutUsingSubscriptionDates() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let future = ISO8601DateFormatter().string(from: now.addingTimeInterval(600))
+        let past = ISO8601DateFormatter().string(from: now.addingTimeInterval(-600))
+        let scenarios: [(String, Sub2APIAccountUnavailableReason?)] = [
+            (#""status":"active","schedulable":false"#, .paused),
+            (#""status":"error","schedulable":true"#, .inactive),
+            (#""status":"active","schedulable":true,"overload_until":"\#(future)""#, .overloaded),
+            (#""status":"active","schedulable":true,"temp_unschedulable_until":"\#(future)""#, .coolingDown),
+            (#""status":"active","schedulable":true,"temp_unschedulable_until":"\#(past)""#, nil)
+        ]
+        for (fields, expected) in scenarios {
+            let body = #"{"id":1,\#(fields),"credentials":{"subscription_expires_at":"2020-01-01T00:00:00Z"}}"#
+            let payload = try JSONDecoder().decode(Sub2APIAccountPayload.self, from: Data(body.utf8))
+            XCTAssertEqual(payload.snapshot(now: now).unavailableReason(at: now), expected)
+        }
     }
 
     func testDetectedProAccountHasNoDefaultCapacityTier() throws {

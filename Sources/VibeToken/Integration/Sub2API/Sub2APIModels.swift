@@ -86,19 +86,16 @@ struct Sub2APIAccountPayload: Decodable, Sendable {
     struct Credentials: Decodable, Sendable {
         let planType: String?
         let name: String?
-        let subscriptionExpiresAt: String?
 
         enum CodingKeys: String, CodingKey {
             case planType = "plan_type"
             case name
-            case subscriptionExpiresAt = "subscription_expires_at"
         }
 
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             planType = container.flexibleString(forKey: .planType)
             name = container.flexibleString(forKey: .name)
-            subscriptionExpiresAt = container.flexibleString(forKey: .subscriptionExpiresAt)
         }
     }
 
@@ -116,11 +113,14 @@ struct Sub2APIAccountPayload: Decodable, Sendable {
         let secondaryUsedPercent: Double?
         let secondaryResetAfterSeconds: Double?
         let secondaryWindowMinutes: Double?
+        let fiveHourWindowExplicitlyAbsent: Bool
+        let fiveHourWindowReported: Bool
 
         enum CodingKeys: String, CodingKey {
             case fiveHourUsedPercent = "codex_5h_used_percent"
             case fiveHourResetAt = "codex_5h_reset_at"
             case fiveHourResetAfterSeconds = "codex_5h_reset_after_seconds"
+            case fiveHourWindowMinutes = "codex_5h_window_minutes"
             case sevenDayUsedPercent = "codex_7d_used_percent"
             case sevenDayResetAt = "codex_7d_reset_at"
             case sevenDayResetAfterSeconds = "codex_7d_reset_after_seconds"
@@ -148,6 +148,24 @@ struct Sub2APIAccountPayload: Decodable, Sendable {
             secondaryUsedPercent = container.flexibleDouble(forKey: .secondaryUsedPercent)
             secondaryResetAfterSeconds = container.flexibleDouble(forKey: .secondaryResetAfterSeconds)
             secondaryWindowMinutes = container.flexibleDouble(forKey: .secondaryWindowMinutes)
+            let fiveHourMinutes = container.flexibleDouble(forKey: .fiveHourWindowMinutes)
+            let rawFiveHourReported = primaryWindowMinutes.map { abs($0 - 300) <= 1 } == true
+                || secondaryWindowMinutes.map { abs($0 - 300) <= 1 } == true
+            let rawWeeklyOnly = (primaryWindowMinutes == 10_080 && secondaryWindowMinutes == 0)
+                || (secondaryWindowMinutes == 10_080 && primaryWindowMinutes == 0)
+            let canonicalDurationMissing = !container.contains(.fiveHourWindowMinutes)
+                || (try? container.decodeNil(forKey: .fiveHourWindowMinutes)) == true
+            // 零时长是非适用窗口，不是“用量为零”。保留真实 300 分钟窗口的限制。
+            fiveHourWindowExplicitlyAbsent = !rawFiveHourReported
+                && (fiveHourMinutes == 0
+                    || (canonicalDurationMissing && rawWeeklyOnly))
+            fiveHourWindowReported = !fiveHourWindowExplicitlyAbsent && (
+                (container.contains(.fiveHourUsedPercent)
+                    && (try? container.decodeNil(forKey: .fiveHourUsedPercent)) != true)
+                || (container.contains(.fiveHourWindowMinutes)
+                    && (try? container.decodeNil(forKey: .fiveHourWindowMinutes)) != true)
+                || rawFiveHourReported
+            )
         }
     }
 
@@ -175,10 +193,12 @@ struct Sub2APIAccountPayload: Decodable, Sendable {
 
     func snapshot(
         now: Date,
-        capacityTier: Sub2APICapacityTier? = nil
+        capacityTier: Sub2APICapacityTier? = nil,
+        proPlan: Sub2APIProPlan? = nil
     ) -> Sub2APIAccountSnapshot {
         let fiveHourFallback = extra?.legacyWindow(minutes: 300)
         let sevenDayFallback = extra?.legacyWindow(minutes: 10_080)
+        let omitFiveHour = extra?.fiveHourWindowExplicitlyAbsent == true
         return Sub2APIAccountSnapshot(
             id: id,
             status: status,
@@ -186,9 +206,8 @@ struct Sub2APIAccountPayload: Decodable, Sendable {
             parentAccountID: parentAccountID,
             plan: Self.normalizedPlan(credentials?.planType),
             capacityTier: resolvedCapacityTier(configuredTier: capacityTier),
-            subscriptionExpiresAt: credentials?.subscriptionExpiresAt.flatMap(Self.parseDate),
-            fiveHourUsedPercent: extra?.fiveHourUsedPercent ?? fiveHourFallback?.usedPercent,
-            fiveHourResetAt: Self.resolveResetAt(
+            fiveHourUsedPercent: omitFiveHour ? nil : (extra?.fiveHourUsedPercent ?? fiveHourFallback?.usedPercent),
+            fiveHourResetAt: omitFiveHour ? nil : Self.resolveResetAt(
                 absolute: extra?.fiveHourResetAt,
                 afterSeconds: extra?.fiveHourResetAfterSeconds ?? fiveHourFallback?.resetAfterSeconds,
                 now: now
@@ -202,7 +221,9 @@ struct Sub2APIAccountPayload: Decodable, Sendable {
             usageUpdatedAt: extra?.usageUpdatedAt.flatMap(Self.parseDate),
             rateLimitResetAt: rateLimitResetAt.flatMap(Self.parseDate),
             overloadUntil: overloadUntil.flatMap(Self.parseDate),
-            tempUnschedulableUntil: tempUnschedulableUntil.flatMap(Self.parseDate)
+            tempUnschedulableUntil: tempUnschedulableUntil.flatMap(Self.parseDate),
+            proPlan: requiresManualCapacityTier ? (proPlan ?? detectedProPlan) : nil,
+            fiveHourWindowReported: extra?.fiveHourWindowReported ?? false
         )
     }
 
@@ -217,7 +238,11 @@ struct Sub2APIAccountPayload: Decodable, Sendable {
     }
 
     var requiresManualCapacityTier: Bool {
-        detectedPlan.caseInsensitiveCompare("Pro") == .orderedSame
+        detectedProPlan != nil
+    }
+
+    var detectedProPlan: Sub2APIProPlan? {
+        Sub2APIProPlan(upstreamValue: credentials?.planType)
     }
 
     func resolvedCapacityTier(
@@ -227,10 +252,13 @@ struct Sub2APIAccountPayload: Decodable, Sendable {
             guard configuredTier?.isProCapacity == true else { return nil }
             return configuredTier
         }
-        return .plus
+        return detectedPlan.caseInsensitiveCompare("Plus") == .orderedSame ? .plus : nil
     }
 
     private static func normalizedPlan(_ value: String?) -> String {
+        if let proPlan = Sub2APIProPlan(upstreamValue: value) {
+            return proPlan.canonicalPlanType
+        }
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed?.isEmpty == false ? trimmed!.capitalized : "Unknown"
     }

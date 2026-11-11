@@ -3,6 +3,81 @@ import XCTest
 @testable import VibeToken
 
 final class Sub2APIPoolAggregatorTests: XCTestCase {
+    func testWeeklyProAndPlusUseSeparateWindowDenominators() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        var pro = account(id: 1, capacityTier: .pro20, fiveHour: nil, sevenDay: 50, updatedAt: now)
+        pro.proPlan = .pro200
+        let plus = account(id: 2, plan: "Plus", fiveHour: 20, sevenDay: 25, updatedAt: now)
+        let snapshot = Sub2APIPoolAggregator.aggregate(accounts: [pro, plus], fetchedAt: now, staleAfter: 900)
+
+        XCTAssertEqual(snapshot.missingWindowAccounts, 0)
+        XCTAssertEqual(snapshot.effectiveCapacity.availableAccounts, 2)
+        XCTAssertEqual(snapshot.fiveHour.observedAccounts, 1)
+        XCTAssertEqual(snapshot.fiveHour.totalCapacityWeight, 1)
+        XCTAssertEqual(try XCTUnwrap(snapshot.fiveHour.remainingFraction), 0.8, accuracy: 0.000_001)
+        XCTAssertEqual(snapshot.sevenDay.totalCapacityWeight, 21)
+        XCTAssertEqual(snapshot.sevenDay.remainingEquivalentAccounts, 10.75, accuracy: 0.000_001)
+        XCTAssertEqual(snapshot.effectiveCapacity.remainingEquivalentAccounts, 10.75, accuracy: 0.000_001)
+        XCTAssertEqual(try XCTUnwrap(snapshot.effectiveCapacity.totalAvailableFiveHourRemainingFraction), 0.8, accuracy: 0.000_001)
+        XCTAssertTrue(snapshot.hasEstimatedWeights)
+        XCTAssertTrue(snapshot.plans.contains { $0.plan == "Pro $200" })
+    }
+
+    func testPlanOnlyDoesNotGuessWeightOrZeroOutAvailableAccount() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        var pro = account(id: 1, capacityTier: nil, fiveHour: nil, sevenDay: 40, updatedAt: now)
+        pro.proPlan = .pro500
+        let snapshot = Sub2APIPoolAggregator.aggregate(accounts: [pro], fetchedAt: now, staleAfter: 900)
+        XCTAssertEqual(snapshot.effectiveCapacity.availableAccounts, 1)
+        XCTAssertEqual(snapshot.missingWindowAccounts, 0)
+        XCTAssertEqual(snapshot.unconfiguredCapacityAccounts, 1)
+        XCTAssertNil(snapshot.displayedRemainingFraction)
+        XCTAssertNil(snapshot.fiveHour.remainingFraction)
+        XCTAssertEqual(pro.quotaStatus(at: now, staleAfter: 900), .weekly(sevenDayRemainingPercent: 60))
+    }
+
+    func testUnconfirmedOrMissingWeeklyDataRemainsUnknown() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let unconfirmed = account(id: 1, capacityTier: .pro20, fiveHour: nil, sevenDay: 40, updatedAt: now)
+        var missingWeek = account(id: 2, capacityTier: .pro20, fiveHour: nil, sevenDay: nil, updatedAt: now)
+        missingWeek.proPlan = .pro100
+        let snapshot = Sub2APIPoolAggregator.aggregate(accounts: [unconfirmed, missingWeek], fetchedAt: now, staleAfter: 900)
+        XCTAssertEqual(snapshot.missingWindowAccounts, 2)
+        XCTAssertEqual(snapshot.effectiveCapacity.availableAccounts, 2)
+        XCTAssertNil(snapshot.displayedRemainingFraction)
+    }
+
+    func testWeeklyProExhaustionAndProvidedFiveHourLimitsRemainEffective() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        var weekly = account(id: 1, capacityTier: .pro5, fiveHour: nil, sevenDay: 100,
+                             updatedAt: now, sevenDayResetAt: now.addingTimeInterval(600))
+        weekly.proPlan = .pro100
+        var dual = account(id: 2, capacityTier: .pro20, fiveHour: 100, sevenDay: 20,
+                           updatedAt: now, fiveHourResetAt: now.addingTimeInterval(900))
+        dual.proPlan = .pro200
+        let snapshot = Sub2APIPoolAggregator.aggregate(accounts: [weekly, dual], fetchedAt: now, staleAfter: 900)
+        XCTAssertEqual(snapshot.effectiveCapacity.availableAccounts, 0)
+        XCTAssertEqual(snapshot.effectiveCapacity.windowLimitedAccounts, 2)
+        XCTAssertEqual(snapshot.effectiveCapacity.nextRecoveryAt, now.addingTimeInterval(600))
+        XCTAssertEqual(snapshot.displayedRemainingFraction, 0)
+    }
+
+    func testStaleExhaustionDoesNotOverrideSchedulableAccountStatus() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let snapshot = Sub2APIPoolAggregator.aggregate(
+            accounts: [account(id: 1, fiveHour: 100, sevenDay: 20,
+                               updatedAt: now.addingTimeInterval(-3_600))],
+            fetchedAt: now,
+            staleAfter: 900
+        )
+
+        XCTAssertEqual(snapshot.effectiveCapacity.availableAccounts, 1)
+        XCTAssertEqual(snapshot.plans.first?.availableAccountCount, 1)
+        XCTAssertEqual(snapshot.staleWindowAccounts, 1)
+        XCTAssertEqual(snapshot.effectiveCapacity.windowLimitedAccounts, 0)
+        XCTAssertEqual(snapshot.effectiveCapacity.remainingEquivalentAccounts, 0)
+    }
+
     func testAggregatesPhysicalSchedulableAccountsAndExcludesShadows() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let accounts = [
@@ -12,7 +87,7 @@ final class Sub2APIPoolAggregatorTests: XCTestCase {
                 plan: "Pro",
                 fiveHour: 50,
                 sevenDay: 100,
-                updatedAt: now.addingTimeInterval(-1_000)
+                updatedAt: now
             ),
             account(id: 3, plan: "Unknown", fiveHour: nil, sevenDay: nil, updatedAt: nil),
             account(id: 4, status: "error", schedulable: false, plan: "Pro", fiveHour: 10, sevenDay: 10, updatedAt: now),
@@ -32,10 +107,10 @@ final class Sub2APIPoolAggregatorTests: XCTestCase {
         XCTAssertEqual(snapshot.missingWindowAccounts, 1)
         XCTAssertEqual(snapshot.staleWindowAccounts, 0)
         XCTAssertEqual(snapshot.effectiveCapacity.observedAccounts, 3)
-        XCTAssertEqual(snapshot.effectiveCapacity.availableAccounts, 1)
+        XCTAssertEqual(snapshot.effectiveCapacity.availableAccounts, 2)
         XCTAssertEqual(snapshot.effectiveCapacity.windowLimitedAccounts, 1)
         XCTAssertEqual(snapshot.effectiveCapacity.remainingEquivalentAccounts, 0.8, accuracy: 0.000_001)
-        XCTAssertEqual(snapshot.effectiveCapacity.availableAccountRemainingFraction, 0.8)
+        XCTAssertEqual(snapshot.effectiveCapacity.availableAccountRemainingFraction, 0.4)
         XCTAssertEqual(snapshot.fiveHour.observedAccounts, 3)
         XCTAssertEqual(snapshot.fiveHour.remainingEquivalentAccounts, 1, accuracy: 0.000_001)
         XCTAssertEqual(try XCTUnwrap(snapshot.fiveHour.remainingFraction), 1.0 / 3, accuracy: 0.000_001)
@@ -134,7 +209,7 @@ final class Sub2APIPoolAggregatorTests: XCTestCase {
         )
     }
 
-    func testExhaustedWindowTakesPrecedenceOverStaleUsageTimestamp() {
+    func testRuntimeRateLimitStillBlocksAnAccountWithStaleUsage() {
         let now = Date()
         let snapshot = Sub2APIPoolAggregator.aggregate(
             accounts: [
@@ -142,7 +217,8 @@ final class Sub2APIPoolAggregatorTests: XCTestCase {
                     id: 1,
                     fiveHour: 0,
                     sevenDay: 100,
-                    updatedAt: now.addingTimeInterval(-1_000)
+                    updatedAt: now.addingTimeInterval(-1_000),
+                    rateLimitResetAt: now.addingTimeInterval(600)
                 )
             ],
             fetchedAt: now,
@@ -372,7 +448,7 @@ final class Sub2APIPoolAggregatorTests: XCTestCase {
         XCTAssertNil(snapshot.sevenDay.nextResetAt)
     }
 
-    func testMissingOrStaleWindowIsNotReportedAsCurrentlyAvailable() {
+    func testMissingOrStaleQuotaDoesNotDisableAccountsOrInventCapacity() {
         let now = Date()
         let accounts = [
             account(id: 1, fiveHour: 0, sevenDay: nil, updatedAt: now),
@@ -388,13 +464,13 @@ final class Sub2APIPoolAggregatorTests: XCTestCase {
         XCTAssertEqual(snapshot.missingWindowAccounts, 1)
         XCTAssertEqual(snapshot.staleWindowAccounts, 1)
         XCTAssertEqual(snapshot.totalCapacityAccounts, 2)
-        XCTAssertEqual(snapshot.displayedAvailableAccountFraction, 0)
-        XCTAssertEqual(snapshot.displayedRemainingFraction, 0)
+        XCTAssertEqual(snapshot.displayedAvailableAccountFraction, 1)
+        XCTAssertNil(snapshot.displayedRemainingFraction)
         XCTAssertEqual(snapshot.effectiveCapacity.observedAccounts, 2)
-        XCTAssertEqual(snapshot.effectiveCapacity.availableAccounts, 0)
+        XCTAssertEqual(snapshot.effectiveCapacity.availableAccounts, 2)
         XCTAssertEqual(snapshot.effectiveCapacity.poolRemainingFraction, 0)
-        XCTAssertNil(snapshot.effectiveCapacity.availableAccountRemainingFraction)
-        XCTAssertNil(snapshot.effectiveCapacity.totalAvailableRemainingFraction)
+        XCTAssertEqual(snapshot.effectiveCapacity.availableAccountRemainingFraction, 0)
+        XCTAssertEqual(snapshot.effectiveCapacity.totalAvailableRemainingFraction, 0)
     }
 
     func testTotalAvailableCapacityAddsUsableAccountsInsteadOfAveragingThem() throws {
@@ -614,7 +690,6 @@ final class Sub2APIPoolAggregatorTests: XCTestCase {
             parentAccountID: parentID,
             plan: plan,
             capacityTier: capacityTier,
-            subscriptionExpiresAt: nil,
             fiveHourUsedPercent: fiveHour,
             fiveHourResetAt: fiveHourResetAt,
             sevenDayUsedPercent: sevenDay,
