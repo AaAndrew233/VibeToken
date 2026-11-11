@@ -3,6 +3,63 @@ import XCTest
 @testable import VibeToken
 
 final class Sub2APIPoolAggregatorTests: XCTestCase {
+    func testSkippedUnknownAccountDoesNotBlockTotalsOrChangeAccountCounts() throws {
+        let now = Date()
+        for schedulable in [false, true] {
+            let skipped = account(id: 1, schedulable: schedulable, plan: "Free",
+                                  capacityTier: .excluded, fiveHour: nil, sevenDay: nil, updatedAt: nil)
+            let plus = account(id: 2, plan: "Plus", fiveHour: 20, sevenDay: 50, updatedAt: now)
+            let snapshot = Sub2APIPoolAggregator.aggregate(
+                accounts: [skipped, plus], fetchedAt: now, staleAfter: 900
+            )
+            XCTAssertEqual(snapshot.totalAccounts, 2)
+            XCTAssertEqual(snapshot.eligibleAccounts, schedulable ? 2 : 1)
+            XCTAssertEqual(snapshot.effectiveCapacity.availableAccounts, schedulable ? 2 : 1)
+            XCTAssertEqual(snapshot.skippedCapacityAccounts, 1)
+            XCTAssertEqual(snapshot.unconfiguredCapacityAccounts, 0)
+            XCTAssertEqual(snapshot.missingWindowAccounts, 0)
+            XCTAssertEqual(snapshot.totalCapacityWeight, 1)
+            XCTAssertEqual(snapshot.fiveHour.observedAccounts, 1)
+            XCTAssertEqual(snapshot.sevenDay.observedAccounts, 1)
+            XCTAssertEqual(try XCTUnwrap(snapshot.displayedRemainingFraction), 0.5, accuracy: 0.000_001)
+            XCTAssertFalse(snapshot.hasEstimatedWeights)
+        }
+    }
+
+    func testSkippedAccountDoesNotDeterminePoolRecoveryOrResetTimes() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let earlyReset = now.addingTimeInterval(60)
+        let includedReset = now.addingTimeInterval(600)
+        let skipped = account(id: 1, capacityTier: .excluded, fiveHour: 100, sevenDay: 20,
+                              updatedAt: now, fiveHourResetAt: earlyReset, sevenDayResetAt: earlyReset)
+        let included = account(id: 2, plan: "Plus", fiveHour: 100, sevenDay: 20,
+                               updatedAt: now, fiveHourResetAt: includedReset, sevenDayResetAt: includedReset)
+        let snapshot = Sub2APIPoolAggregator.aggregate(
+            accounts: [skipped, included], fetchedAt: now, staleAfter: 900
+        )
+        XCTAssertEqual(snapshot.totalAccounts, 2)
+        XCTAssertEqual(snapshot.effectiveCapacity.windowLimitedAccounts, 2)
+        XCTAssertEqual(snapshot.effectiveCapacity.nextRecoveryAt, includedReset)
+        XCTAssertEqual(snapshot.fiveHour.nextResetAt, includedReset)
+        XCTAssertEqual(snapshot.sevenDay.nextResetAt, includedReset)
+        XCTAssertEqual(snapshot.totalCapacityWeight, 1)
+    }
+
+    func testSkippingEveryAccountDoesNotInventFullCapacity() {
+        let snapshot = Sub2APIPoolAggregator.aggregate(
+            accounts: [account(id: 1, plan: "Free", capacityTier: .excluded,
+                               fiveHour: nil, sevenDay: nil, updatedAt: nil)],
+            fetchedAt: Date(), staleAfter: 900
+        )
+        XCTAssertEqual(snapshot.totalAccounts, 1)
+        XCTAssertEqual(snapshot.effectiveCapacity.availableAccounts, 1)
+        XCTAssertEqual(snapshot.skippedCapacityAccounts, 1)
+        XCTAssertEqual(snapshot.totalCapacityWeight, 0)
+        XCTAssertNil(snapshot.displayedRemainingFraction)
+        XCTAssertNil(snapshot.fiveHour.remainingFraction)
+        XCTAssertNil(snapshot.sevenDay.remainingFraction)
+    }
+
     func testWeeklyProAndPlusUseSeparateWindowDenominators() throws {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         var pro = account(id: 1, capacityTier: .pro20, fiveHour: nil, sevenDay: 50, updatedAt: now)

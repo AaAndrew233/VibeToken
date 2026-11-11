@@ -118,6 +118,7 @@ enum CopyKey: String, Sendable {
     case unavailableAccountTab
     case saveConfiguration
     case capacityConfigurationHint
+    case skipCapacityAggregation
     case noAccountsFound
     case selectCapacityType
     case unconfiguredCapacity
@@ -250,7 +251,8 @@ enum Localizer {
         .availableAccountTab: "可用账号",
         .unavailableAccountTab: "不可用账号",
         .saveConfiguration: "保存配置",
-        .capacityConfigurationHint: "Pro 套餐自动识别，可手动调整；估算倍数独立保存，不按月费换算。",
+        .capacityConfigurationHint: "Pro 套餐自动识别，可手动调整；估算倍数不按月费换算。选择“略过”不参与额度汇总。",
+        .skipCapacityAggregation: "略过",
         .noAccountsFound: "未找到可同步账号",
         .selectCapacityType: "请选择",
         .unconfiguredCapacity: "权重未确认",
@@ -373,7 +375,8 @@ enum Localizer {
         .availableAccountTab: "Available Accounts",
         .unavailableAccountTab: "Unavailable Accounts",
         .saveConfiguration: "Save Configuration",
-        .capacityConfigurationHint: "Pro plans are detected automatically and can be adjusted. Estimated weights are saved separately, not derived from price.",
+        .capacityConfigurationHint: "Pro plans are detected automatically and can be adjusted. Weights are not derived from price. Choose Skip to exclude an account from totals.",
+        .skipCapacityAggregation: "Skip",
         .noAccountsFound: "No syncable accounts found",
         .selectCapacityType: "Select",
         .unconfiguredCapacity: "Weight unknown",

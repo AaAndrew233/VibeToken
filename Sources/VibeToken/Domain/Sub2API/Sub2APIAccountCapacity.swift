@@ -42,6 +42,7 @@ enum Sub2APICapacityTier: String, Codable, CaseIterable, Identifiable, Sendable 
     case pro5
     case pro10
     case pro20
+    case excluded
 
     var id: String { rawValue }
 
@@ -51,6 +52,7 @@ enum Sub2APICapacityTier: String, Codable, CaseIterable, Identifiable, Sendable 
         case .pro5: 5
         case .pro10: 10
         case .pro20: 20
+        case .excluded: 0
         }
     }
 
@@ -60,11 +62,12 @@ enum Sub2APICapacityTier: String, Codable, CaseIterable, Identifiable, Sendable 
         case .pro5: "Pro 5x"
         case .pro10: "Pro 10x"
         case .pro20: "Pro 20x"
+        case .excluded: "Excluded"
         }
     }
 
     var isProCapacity: Bool {
-        self != .plus
+        self == .pro5 || self == .pro10 || self == .pro20
     }
 }
 

@@ -359,6 +359,8 @@ struct Sub2APIConnectionView: View {
                         Text("5x").tag(Optional(Sub2APICapacityTier.pro5))
                         Text("10x").tag(Optional(Sub2APICapacityTier.pro10))
                         Text("20x").tag(Optional(Sub2APICapacityTier.pro20))
+                        Text(state.text(.skipCapacityAggregation))
+                            .tag(Optional(Sub2APICapacityTier.excluded))
                     }
                     .pickerStyle(.menu)
                     .labelsHidden()
@@ -368,11 +370,20 @@ struct Sub2APIConnectionView: View {
                     .disabled(state.sub2APIStatus.isBusy)
                     .accessibilityLabel(state.text(.capacityType))
                 } else {
-                    Text(option.selectedTier == .plus ? "1x" : "--")
-                        .font(.system(size: 11, weight: .medium, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                        .frame(width: TableLayout.multiplierWidth, alignment: .leading)
+                    let defaultTier: Sub2APICapacityTier? =
+                        option.detectedPlan.caseInsensitiveCompare("Plus") == .orderedSame ? .plus : nil
+                    Picker("", selection: capacitySelectionBinding(for: option)) {
+                        Text(defaultTier == .plus ? "1x" : state.text(.selectCapacityType))
+                            .tag(defaultTier)
+                        Text(state.text(.skipCapacityAggregation))
+                            .tag(Optional(Sub2APICapacityTier.excluded))
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .frame(width: TableLayout.multiplierWidth, alignment: .leading)
+                    .disabled(state.sub2APIStatus.isBusy)
+                    .accessibilityLabel(state.text(.capacityType))
                 }
             }
             .frame(width: TableLayout.trailingWidth, alignment: .leading)
@@ -529,6 +540,7 @@ struct Sub2APIConnectionView: View {
 
     private func isUnconfiguredPro(_ option: Sub2APIAccountCapacityOption) -> Bool {
         isDetectedPro(option) && selectedTiers[option.accountID]?.isProCapacity != true
+            && selectedTiers[option.accountID] != .excluded
             && selectedProPlans[option.accountID] == nil
     }
 

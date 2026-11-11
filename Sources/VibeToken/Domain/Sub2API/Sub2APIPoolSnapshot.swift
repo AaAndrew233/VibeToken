@@ -120,6 +120,7 @@ struct Sub2APIPoolSnapshot: Equatable, Sendable {
     let plans: [Sub2APIPlanSnapshot]
     let fetchedAt: Date
     var hasEstimatedWeights: Bool = false
+    var skippedCapacityAccounts: Int = 0
 
     var totalCapacityAccounts: Int {
         effectiveCapacity.observedAccounts
@@ -211,7 +212,9 @@ enum Sub2APIPoolAggregator {
         }
         let operationalIDs = Set(operational.map(\.id))
         let unavailable = physicalAccounts.count - operational.count
-        let nonLimited = operational.filter { !windowLimitedIDs.contains($0.id) }
+        let nonLimited = operational.filter {
+            $0.capacityTier != .excluded && !windowLimitedIDs.contains($0.id)
+        }
         let missing = nonLimited.filter {
             quotaStatuses[$0.id] == .unobserved
         }
@@ -283,7 +286,8 @@ enum Sub2APIPoolAggregator {
             ),
             plans: plans,
             fetchedAt: fetchedAt,
-            hasEstimatedWeights: activeAccounts.contains { $0.capacityTier?.isProCapacity == true }
+            hasEstimatedWeights: activeAccounts.contains { $0.capacityTier?.isProCapacity == true },
+            skippedCapacityAccounts: physicalAccounts.count { $0.capacityTier == .excluded }
         )
     }
 
@@ -298,7 +302,7 @@ enum Sub2APIPoolAggregator {
         let values = accounts.compactMap { account -> EffectiveAccountValue? in
             let isUnavailable = zeroContributionIDs.contains(account.id)
             let isWindowLimited = windowLimitedIDs.contains(account.id)
-            let recoveryAt = isWindowLimited
+            let recoveryAt = isWindowLimited && account.capacityTier != .excluded
                 ? account.reliableEstimatedRecoveryAt(
                     after: fetchedAt,
                     staleAfter: staleAfter
@@ -379,6 +383,7 @@ enum Sub2APIPoolAggregator {
         fetchedAt: Date
     ) -> Sub2APIWindowSnapshot {
         let values: [(remaining: Double, resetAt: Date?, weight: Double)] = accounts.compactMap { account in
+            guard account.capacityTier != .excluded else { return nil }
             if window == .fiveHour && !account.requiresFiveHourWindow { return nil }
             let remaining: Double
             let resetAt: Date?

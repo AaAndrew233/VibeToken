@@ -186,16 +186,24 @@ final class Sub2APIStartupTests: XCTestCase {
 
     func testCrossingNextRecoveryAutomaticallyForcesFreshUsageProbe() async throws {
         let client = RecoveryTimingSub2APIClient(
-            recoveryAt: Date().addingTimeInterval(0.15)
+            recoveryDelay: 0.15
         )
         let state = try makeRecoveryState(client: client)
+        // 模拟 CI 上较慢的启动准备；恢复倒计时应从首次额度探测开始。
+        try await Task.sleep(for: .milliseconds(250))
 
         state.startMonitoring()
         defer { state.stopMonitoring() }
 
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(1))
-        while await client.usageRefreshCount < 2, clock.now < deadline {
+        let deadline = clock.now.advanced(by: .seconds(5))
+        while clock.now < deadline {
+            let refreshCount = await client.usageRefreshCount
+            if refreshCount >= 2,
+               state.sub2APIStatus == .connected,
+               state.sub2APIPoolSnapshot?.effectiveCapacity.availableAccounts == 1 {
+                break
+            }
             try await Task.sleep(for: .milliseconds(20))
         }
 
@@ -209,7 +217,7 @@ final class Sub2APIStartupTests: XCTestCase {
 
     func testRecoveryRefreshRetriesAfterTransientFailure() async throws {
         let client = RecoveryTimingSub2APIClient(
-            recoveryAt: Date().addingTimeInterval(0.15),
+            recoveryDelay: 0.15,
             failedRefreshCounts: [2]
         )
         let state = try makeRecoveryState(client: client)
@@ -218,7 +226,7 @@ final class Sub2APIStartupTests: XCTestCase {
         defer { state.stopMonitoring() }
 
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(1))
+        let deadline = clock.now.advanced(by: .seconds(5))
         while clock.now < deadline {
             let usageRefreshCount = await client.usageRefreshCount
             if usageRefreshCount >= 3,
@@ -439,12 +447,13 @@ private actor DelayedUsageSub2APIClient: Sub2APIClientServing {
 }
 
 private actor RecoveryTimingSub2APIClient: Sub2APIClientServing {
-    private let recoveryAt: Date
+    private let recoveryDelay: TimeInterval
+    private var recoveryAt: Date?
     private let failedRefreshCounts: Set<Int>
     private(set) var usageRefreshCount = 0
 
-    init(recoveryAt: Date, failedRefreshCounts: Set<Int> = []) {
-        self.recoveryAt = recoveryAt
+    init(recoveryDelay: TimeInterval, failedRefreshCounts: Set<Int> = []) {
+        self.recoveryDelay = recoveryDelay
         self.failedRefreshCounts = failedRefreshCounts
     }
 
@@ -462,7 +471,8 @@ private actor RecoveryTimingSub2APIClient: Sub2APIClientServing {
         maximumPages: Int
     ) async throws -> [Sub2APIAccountPayload] {
         let usageUpdatedAt = Date().addingTimeInterval(TimeInterval(usageRefreshCount))
-        let body = #"{"id":1,"status":"active","schedulable":true,"parent_account_id":null,"credentials":{"plan_type":"plus"},"extra":{"codex_5h_used_percent":\#(usageRefreshCount >= 2 ? 0 : 100),"codex_5h_reset_at":"\#(timestamp(recoveryAt))","codex_7d_used_percent":20,"codex_usage_updated_at":"\#(timestamp(usageUpdatedAt))"}}"#
+        let resetAt = recoveryAt ?? Date().addingTimeInterval(60)
+        let body = #"{"id":1,"status":"active","schedulable":true,"parent_account_id":null,"credentials":{"plan_type":"plus"},"extra":{"codex_5h_used_percent":\#(usageRefreshCount >= 2 ? 0 : 100),"codex_5h_reset_at":"\#(timestamp(resetAt))","codex_7d_used_percent":20,"codex_usage_updated_at":"\#(timestamp(usageUpdatedAt))"}}"#
         return [try JSONDecoder().decode(Sub2APIAccountPayload.self, from: Data(body.utf8))]
     }
 
@@ -470,6 +480,9 @@ private actor RecoveryTimingSub2APIClient: Sub2APIClientServing {
 
     func refreshAccountUsage(baseURL: URL, accountIDs: [Int64]) async throws {
         usageRefreshCount += 1
+        if usageRefreshCount == 1 {
+            recoveryAt = Date().addingTimeInterval(recoveryDelay)
+        }
         if failedRefreshCounts.contains(usageRefreshCount) {
             throw Sub2APIError.serverUnavailable
         }

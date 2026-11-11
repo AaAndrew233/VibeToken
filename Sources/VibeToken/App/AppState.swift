@@ -468,51 +468,51 @@ final class AppState {
         )
         sub2APIPoolSnapshot = Sub2APIPoolSnapshot(
             totalAccounts: 11,
-            eligibleAccounts: 11,
+            eligibleAccounts: 10,
             excludedShadowAccounts: 0,
-            unavailableAccounts: 0,
+            unavailableAccounts: 1,
             missingWindowAccounts: 0,
             staleWindowAccounts: 0,
             unconfiguredCapacityAccounts: 0,
             effectiveCapacity: Sub2APIEffectiveCapacitySnapshot(
                 observedAccounts: 11,
                 availableAccounts: 1,
-                windowLimitedAccounts: 10,
+                windowLimitedAccounts: 9,
                 remainingEquivalentAccounts: 0.79,
                 fiveHourRemainingEquivalentAccounts: 1,
                 sevenDayRemainingEquivalentAccounts: 0.79,
                 availableFiveHourRemainingFraction: 1,
                 availableSevenDayRemainingFraction: 0.79,
                 nextRecoveryAt: now.addingTimeInterval(2 * 24 * 60 * 60),
-                totalCapacityWeight: 87
+                totalCapacityWeight: 86
             ),
             fiveHour: Sub2APIWindowSnapshot(
-                observedAccounts: 11,
+                observedAccounts: 10,
                 remainingEquivalentAccounts: 1,
-                totalCapacityWeight: 87,
+                totalCapacityWeight: 86,
                 nextResetAt: now.addingTimeInterval(75 * 60)
             ),
             sevenDay: Sub2APIWindowSnapshot(
-                observedAccounts: 11,
+                observedAccounts: 10,
                 remainingEquivalentAccounts: 0.79,
-                totalCapacityWeight: 87,
+                totalCapacityWeight: 86,
                 nextResetAt: now.addingTimeInterval(2 * 24 * 60 * 60)
             ),
             plans: [
                 Sub2APIPlanSnapshot(
                     plan: "Plus",
-                    accountCount: 7,
+                    accountCount: 6,
                     availableAccountCount: 1,
                     fiveHour: Sub2APIWindowSnapshot(
-                        observedAccounts: 7,
+                        observedAccounts: 6,
                         remainingEquivalentAccounts: 1,
-                        totalCapacityWeight: 7,
+                        totalCapacityWeight: 6,
                         nextResetAt: nil
                     ),
                     sevenDay: Sub2APIWindowSnapshot(
-                        observedAccounts: 7,
+                        observedAccounts: 6,
                         remainingEquivalentAccounts: 0.79,
-                        totalCapacityWeight: 7,
+                        totalCapacityWeight: 6,
                         nextResetAt: nil
                     )
                 ),
@@ -534,14 +534,15 @@ final class AppState {
                     )
                 )
             ],
-            fetchedAt: now
+            fetchedAt: now,
+            skippedCapacityAccounts: 1
         )
         let fixtureOptions = (1...11).map { id in
             let isPro = id <= 4
             let displayName = id == 1 ? "研发主账号（超长名称布局验收）" : nil
             let runtimeStatus: Sub2APIAccountRuntimeStatus = switch id {
             case 1: .rateLimited
-            case 2: .unavailable
+            case 2, 11: .unavailable
             case 4: .rateLimited
             default: .available
             }
@@ -554,7 +555,7 @@ final class AppState {
                 )
             case 2:
                 quotaStatus = .stale
-            case 3:
+            case 3, 11:
                 quotaStatus = .unobserved
             case 6:
                 quotaStatus = .current(
@@ -576,8 +577,8 @@ final class AppState {
             return Sub2APIAccountCapacityOption(
                 accountID: Int64(id),
                 displayName: displayName,
-                detectedPlan: isPro ? "Pro" : "Plus",
-                selectedTier: isPro ? .pro20 : .plus,
+                detectedPlan: id == 11 ? "Free" : (isPro ? "Pro" : "Plus"),
+                selectedTier: id == 11 ? .excluded : (isPro ? .pro20 : .plus),
                 runtimeStatus: runtimeStatus,
                 quotaStatus: quotaStatus,
                 fiveHourResetAt: now.addingTimeInterval(TimeInterval(id) * 15 * 60),

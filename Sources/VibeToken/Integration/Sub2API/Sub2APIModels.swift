@@ -248,6 +248,7 @@ struct Sub2APIAccountPayload: Decodable, Sendable {
     func resolvedCapacityTier(
         configuredTier: Sub2APICapacityTier?
     ) -> Sub2APICapacityTier? {
+        if configuredTier == .excluded { return .excluded }
         if requiresManualCapacityTier {
             guard configuredTier?.isProCapacity == true else { return nil }
             return configuredTier

@@ -126,9 +126,10 @@ actor Sub2APIPoolMonitor {
             pageSize: pageSize,
             maximumPages: maximumPages
         )
-        let usageAccountIDs = activePhysicalAccountIDs(in: payloads)
+        let usageAccountIDs = try quotaAccountIDs(in: payloads)
+        let cachedUsageAccountIDs = try quotaAccountIDs(in: cachedAccountPayloads)
         let accountSetChanged = cachedSnapshot != nil
-            && usageAccountIDs != activePhysicalAccountIDs(in: cachedAccountPayloads)
+            && usageAccountIDs != cachedUsageAccountIDs
         configurationAccountPayloads = payloads
         if force {
             supportsUsageRefresh = true
@@ -229,7 +230,10 @@ actor Sub2APIPoolMonitor {
         var merged = savedConfiguration.tiersByAccountID(serverIdentifier: serverIdentifier)
         var plans = savedConfiguration.proPlansByAccountID(serverIdentifier: serverIdentifier)
         for payload in physicalAccountPayloads() {
-            if payload.requiresManualCapacityTier {
+            if submitted[payload.id]?.tier == .excluded {
+                merged[payload.id] = .excluded
+                plans[payload.id] = submitted[payload.id]?.proPlan ?? plans[payload.id]
+            } else if payload.requiresManualCapacityTier {
                 guard let selection = submitted[payload.id],
                       selection.tier?.isProCapacity == true || selection.proPlan != nil else {
                     throw Sub2APIError.capacityConfigurationIncomplete
@@ -302,7 +306,7 @@ actor Sub2APIPoolMonitor {
         var baselinePayloads = initialBaseline
 
         for poolAttempt in 0..<2 {
-            let accountIDs = activePhysicalAccountIDs(in: baselinePayloads)
+            let accountIDs = try quotaAccountIDs(in: baselinePayloads)
             guard !accountIDs.isEmpty else { return baselinePayloads }
 
             try await client.refreshAccountUsage(baseURL: baseURL, accountIDs: accountIDs.sorted())
@@ -336,7 +340,7 @@ actor Sub2APIPoolMonitor {
             baselinePayloads.map { ($0.id, $0) },
             uniquingKeysWith: { _, latest in latest }
         )
-        let expectedIDs = activePhysicalAccountIDs(in: baselinePayloads)
+        let expectedIDs = try quotaAccountIDs(in: baselinePayloads)
         let proPlans = try savedProPlans()
         var latestPayloads = baselinePayloads
         var latestVerifiedCount = 0
@@ -348,7 +352,7 @@ actor Sub2APIPoolMonitor {
                 pageSize: pageSize,
                 maximumPages: maximumPages
             )
-            let currentIDs = activePhysicalAccountIDs(in: latestPayloads)
+            let currentIDs = try quotaAccountIDs(in: latestPayloads)
             guard currentIDs == expectedIDs else {
                 return .accountSetChanged(latestPayloads)
             }
@@ -428,6 +432,11 @@ actor Sub2APIPoolMonitor {
         guard let serverIdentifier = cachedConnection?.baseURL.absoluteString else { return [:] }
         return try capacityConfigurationStore.load()?
             .tiersByAccountID(serverIdentifier: serverIdentifier) ?? [:]
+    }
+
+    private func quotaAccountIDs(in payloads: [Sub2APIAccountPayload]) throws -> Set<Int64> {
+        let excludedIDs = Set(try savedTiers().filter { $0.value == .excluded }.keys)
+        return activePhysicalAccountIDs(in: payloads).subtracting(excludedIDs)
     }
 
     private func savedProPlans() throws -> [Int64: Sub2APIProPlan] {

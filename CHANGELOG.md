@@ -6,6 +6,7 @@
 
 - Added persistent Pro $100 / $200 / $500 plan selections, independent of optional legacy 5x / 10x / 20x estimated weights. Monthly prices are not converted into quota weights.
 - Added verified weekly-only Pro quota support, per-window capacity denominators, and configuration access after an incomplete initial refresh. Reported 5-hour limits remain enforced.
+- Added a persistent Skip option for any account, including Free and unknown plans. Skipped accounts retain their list entries and counts without blocking totals or verified quota refreshes; summaries show the skipped count, and an entirely skipped pool remains unknown.
 
 ### Changed
 
@@ -20,6 +21,7 @@
 - Removed plan expiration display and decoding because the upstream field can retain an outdated subscription date.
 - Continued scanning recently modified Codex sessions even when their date directory is older than the lookback window, so long-running sessions are not omitted from usage totals.
 - Required quota-exhaustion records to pass timestamp verification instead of treating cached 100% usage as proof of a successful refresh.
+- Made recovery scheduling tests start their countdown at the first quota probe, avoiding initialization-dependent failures on slower CI machines.
 
 ## [0.1.9] - 2026-09-24
 

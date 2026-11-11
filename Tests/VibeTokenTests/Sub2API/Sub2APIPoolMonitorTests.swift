@@ -3,6 +3,85 @@ import XCTest
 @testable import VibeToken
 
 final class Sub2APIPoolMonitorTests: XCTestCase {
+    func testSkippingUnknownAccountPersistsAndUnblocksVerifiedQuotaRefresh() async throws {
+        for schedulable in [false, true] {
+            let data = try JSONSerialization.data(withJSONObject: [
+                "id": 1, "status": "active", "schedulable": schedulable,
+                "credentials": ["plan_type": "free"]
+            ])
+            let free = try JSONDecoder().decode(Sub2APIAccountPayload.self, from: data)
+            let plus = try decodeRecoveryAccount(
+                id: 2, fiveHourUsedPercent: 20, sevenDayUsedPercent: 50,
+                usageUpdatedAt: ISO8601DateFormatter().string(from: Date())
+            )
+            let payloads = [free, plus]
+            let client = RecordingAccountsClient(accountResponses: [payloads])
+            let fixture = try makeUsageRefreshFixture(client: client)
+            defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+            do {
+                _ = try await fixture.monitor.refresh(force: true)
+                XCTAssertFalse(schedulable, "未略过且可调度的未知额度不能通过验真")
+            } catch let error as Sub2APIError {
+                XCTAssertTrue(schedulable)
+                XCTAssertEqual(error, .usageRefreshIncomplete(refreshed: 1, total: 2))
+            }
+            _ = try await fixture.monitor.saveCapacitySelections([
+                .init(accountID: 1, tier: .excluded)
+            ])
+            let pool = try await fixture.monitor.refresh(force: true)
+            let requests = await client.usageRequests
+            XCTAssertEqual(requests.last, [2], "略过账号不得阻塞其他账号的正式探测")
+            XCTAssertEqual(pool?.skippedCapacityAccounts, 1)
+            XCTAssertEqual(pool?.displayedRemainingFraction, 0.5)
+
+            let restored = makeMonitor(
+                client: FixedAccountsClient(accounts: payloads),
+                sessionStore: FileSub2APISessionStore(supportDirectory: fixture.directory),
+                connectionStore: FileSub2APIConnectionStore(supportDirectory: fixture.directory),
+                capacityStore: FileSub2APICapacityConfigurationStore(supportDirectory: fixture.directory)
+            )
+            let restoredPool = try await restored.refresh(force: true)
+            let restoredOptions = try await restored.capacityOptions()
+            XCTAssertEqual(restoredPool?.displayedRemainingFraction, 0.5)
+            XCTAssertEqual(restoredOptions.first { $0.accountID == 1 }?.selectedTier, .excluded)
+            XCTAssertEqual(restoredOptions.first { $0.accountID == 1 }?.isAvailableForDisplay, schedulable)
+
+            let unskipped = try await fixture.monitor.saveCapacitySelections([])
+            XCTAssertEqual(unskipped?.skippedCapacityAccounts, 0)
+            XCTAssertEqual(unskipped?.unconfiguredCapacityAccounts, 1)
+            XCTAssertNil(unskipped?.displayedRemainingFraction)
+            do {
+                _ = try await fixture.monitor.refresh(force: true)
+                XCTAssertFalse(schedulable)
+            } catch let error as Sub2APIError {
+                XCTAssertEqual(error, .usageRefreshIncomplete(refreshed: 1, total: 2))
+            }
+            let resumedRequests = await client.usageRequests
+            XCTAssertEqual(resumedRequests.last, [1, 2])
+            let credentialRequests = await client.credentialRequests
+            XCTAssertTrue(credentialRequests.isEmpty)
+        }
+    }
+
+    func testAllSkippedAccountsRemainListedWithoutUsageProbe() async throws {
+        let payload = try decodeWeeklyAccount(plan: "free", updatedAt: nil)
+        let client = RecordingAccountsClient(accountResponses: [[payload]])
+        let fixture = try makeUsageRefreshFixture(client: client)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        do { _ = try await fixture.monitor.refresh(force: true) } catch {}
+        _ = try await fixture.monitor.saveCapacitySelections([.init(accountID: 1, tier: .excluded)])
+        let requestsBefore = await client.usageRequests
+        let pool = try await fixture.monitor.refresh(force: true)
+        let requestsAfter = await client.usageRequests
+        let options = try await fixture.monitor.capacityOptions()
+        XCTAssertEqual(requestsBefore, requestsAfter)
+        XCTAssertEqual(pool?.totalAccounts, 1)
+        XCTAssertEqual(pool?.skippedCapacityAccounts, 1)
+        XCTAssertNil(pool?.displayedRemainingFraction)
+        XCTAssertEqual(options.count, 1)
+    }
+
     func testRecognizedWeeklyProDoesNotRequireManualPlanConfirmation() async throws {
         let cases: [(String, Sub2APIProPlan)] = [("prolite", .pro100), ("pro", .pro200), ("promax", .pro500)]
         for (wirePlan, plan) in cases {

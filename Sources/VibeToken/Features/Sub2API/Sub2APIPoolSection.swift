@@ -237,6 +237,13 @@ struct Sub2APIPoolSection: View {
                     .foregroundStyle(.orange)
                     .lineLimit(1)
             }
+            if snapshot.skippedCapacityAccounts > 0 {
+                Text(state.language == .simplifiedChinese
+                     ? "已略过 \(snapshot.skippedCapacityAccounts) 个账号"
+                     : "Excluded accounts: \(snapshot.skippedCapacityAccounts)")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

@@ -3,6 +3,19 @@ import XCTest
 @testable import VibeToken
 
 final class Sub2APIFileStoreTests: XCTestCase {
+    func testSkippedSelectionPersistsPerServerWithoutBecomingProWeight() throws {
+        let configuration = Sub2APIAccountCapacityConfiguration.empty.updating(
+            serverIdentifier: "YOUR_SERVER_URL", tiersByAccountID: [1: .excluded, 2: .plus]
+        )
+        let data = try JSONEncoder().encode(configuration)
+        let restored = try JSONDecoder().decode(Sub2APIAccountCapacityConfiguration.self, from: data)
+        XCTAssertEqual(restored.tiersByAccountID(serverIdentifier: "YOUR_SERVER_URL"),
+                       [1: .excluded, 2: .plus])
+        XCTAssertTrue(restored.tiersByAccountID(serverIdentifier: "ANOTHER_SERVER_URL").isEmpty)
+        XCTAssertEqual(Sub2APICapacityTier.excluded.multiplier, 0)
+        XCTAssertFalse(Sub2APICapacityTier.excluded.isProCapacity)
+    }
+
     func testLegacyWeightsAndNewPlansPersistIndependently() throws {
         let legacy = Data(#"{"selectionsByServer":{"YOUR_SERVER_URL":[{"accountID":1,"tier":"pro10"},{"accountID":2,"tier":"pro20"}]}}"#.utf8)
         let configuration = try JSONDecoder().decode(Sub2APIAccountCapacityConfiguration.self, from: legacy)
