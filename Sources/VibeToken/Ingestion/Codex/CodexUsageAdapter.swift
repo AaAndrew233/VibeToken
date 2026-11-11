@@ -116,12 +116,17 @@ actor CodexUsageAdapter: UsageSourceAdapter {
         let todayDirectories = sessionRoots().map {
             directory(for: now, sessionsRoot: $0, calendar: calendar)
         }
-        let directories = todayDirectories + archiveRoots().filter(Self.isDirectory)
-        let files = try directories.flatMap { try jsonlFiles(in: $0) }
+        let files = try recentSessionFiles(now: now)
             .sorted { modificationDate(for: $0) > modificationDate(for: $1) }
+        let watchedFiles = Array(files.prefix(configuration.maximumWatchedSessionFiles))
+        let directories = Set(
+            todayDirectories
+                + archiveRoots().filter(Self.isDirectory)
+                + watchedFiles.map { $0.deletingLastPathComponent() }
+        )
         return CodexWatchTargets(
-            fileURLs: Array(files.prefix(configuration.maximumWatchedSessionFiles)),
-            directoryURLs: directories
+            fileURLs: watchedFiles,
+            directoryURLs: Array(directories)
         )
     }
 
@@ -169,29 +174,15 @@ actor CodexUsageAdapter: UsageSourceAdapter {
     }
 
     private func recentSessionFiles(now: Date) throws -> [URL] {
-        let calendar = Calendar.current
-        let start = calendar.startOfDay(for: now.addingTimeInterval(
+        let start = Calendar.current.startOfDay(for: now.addingTimeInterval(
             -TimeInterval(configuration.historyLookbackDays) * 24 * 60 * 60
         ))
-        let end = calendar.startOfDay(for: now)
-        var current = start
-        var files: [URL] = []
-
-        while current <= end {
-            for sessionsRoot in sessionRoots() {
-                files.append(contentsOf: try jsonlFiles(
-                    in: directory(for: current, sessionsRoot: sessionsRoot, calendar: calendar)
-                ))
-            }
-            guard let next = calendar.date(byAdding: .day, value: 1, to: current) else { break }
-            current = next
-        }
-        files.append(contentsOf: LocalUsageFileDiscovery.files(
-            under: archiveRoots(),
+        let files = LocalUsageFileDiscovery.files(
+            under: sessionRoots() + archiveRoots(),
             extensions: ["jsonl"],
             modifiedSince: start,
             maximumFiles: configuration.maximumUsageSourceFiles
-        ))
+        )
         return files.sorted { left, right in
             modificationDate(for: left) < modificationDate(for: right)
         }

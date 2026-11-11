@@ -101,6 +101,44 @@ final class CodexUsageAdapterTests: XCTestCase {
         XCTAssertEqual(aggregate.snapshot?.totalTokens, 88)
     }
 
+    func testScansRecentlyModifiedSessionOutsideDateDirectoryLookback() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let now = Date()
+        let oldDate = try XCTUnwrap(
+            Calendar.current.date(byAdding: .day, value: -45, to: now)
+        )
+        let components = Calendar.current.dateComponents([.year, .month, .day], from: oldDate)
+        let oldDayDirectory = codexHome
+            .appendingPathComponent("sessions", isDirectory: true)
+            .appendingPathComponent(String(format: "%04d", components.year ?? 0), isDirectory: true)
+            .appendingPathComponent(String(format: "%02d", components.month ?? 0), isDirectory: true)
+            .appendingPathComponent(String(format: "%02d", components.day ?? 0), isDirectory: true)
+        try FileManager.default.createDirectory(at: oldDayDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sessionURL = oldDayDirectory.appendingPathComponent("active-rollout.jsonl")
+        try writeSession(at: sessionURL, timestamp: now, total: 144)
+
+        let adapter = CodexUsageAdapter(
+            configuration: configuration(codexHome: codexHome),
+            repository: UsageRepository(database: try VibeTokenDatabase.inMemory())
+        )
+        try await adapter.ingestRecentSessions(now: now)
+        let aggregate = try await adapter.aggregate(range: .hours24, now: now)
+        let watchTargets = try await adapter.watchTargets(now: now)
+        let normalizedSessionURL = sessionURL.standardizedFileURL.resolvingSymlinksInPath()
+
+        XCTAssertEqual(aggregate.snapshot?.totalTokens, 144)
+        XCTAssertTrue(
+            watchTargets.fileURLs.contains {
+                $0.standardizedFileURL.resolvingSymlinksInPath() == normalizedSessionURL
+            },
+            "watch targets: \(watchTargets.fileURLs.map(\.path))"
+        )
+    }
+
     private func configuration(
         codexHome: URL,
         additionalCodexHomes: [URL] = []
