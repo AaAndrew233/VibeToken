@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Added GPT-6.2 Astra/Sol and GPT-6.1 Sol/Terra official prices so their collected tokens contribute to cost estimates and pricing coverage.
+- Updated GPT-6/GPT-5.6 long-context output rates from the November 26, 2026 official table.
+- Added explicit Ultrafast suffix pricing, including GPT-6.2's promotion boundary at March 1, 2027, 00:00 Pacific time. Unsupported processing tiers remain unpriced instead of silently using Standard rates.
+- Verified new-model usage from Codex parsing through cost coverage without changing the ingestion format or uploading usage to a third party.
+
 ## [0.1.10] - 2026-11-11
 
 ### Added

@@ -34,7 +34,7 @@ struct PricingCatalog: Sendable {
         var normalizedModel = Self.normalize(rawModel)
         var tier: String?
 
-        for candidateTier in ["priority", "fast", "flex", "batch"]
+        for candidateTier in ["ultrafast", "priority", "fast", "flex", "batch"]
         where normalizedModel.hasSuffix("-\(candidateTier)") {
             normalizedModel.removeLast(candidateTier.count + 1)
             tier = candidateTier
@@ -47,11 +47,11 @@ struct PricingCatalog: Sendable {
             let isBeforeEnd = rule.effectiveUntil.map { date < $0 } ?? true
             return isAfterStart && isBeforeEnd
         }) else { return nil }
-        let matchedTier = tier.flatMap { candidate in
-            rule.tierRates[candidate] != nil || rule.longContextTierRates[candidate] != nil
-                ? candidate
-                : nil
+        // 明确带档位的模型只能使用已公布的对应价格，不能静默降为 Standard。
+        if let tier, rule.tierRates[tier] == nil, rule.longContextTierRates[tier] == nil {
+            return nil
         }
+        let matchedTier = tier
         let rate: TokenPriceRate
         if let matchedTier {
             rate = context == .long
@@ -80,16 +80,87 @@ struct PricingCatalog: Sendable {
 }
 
 extension PricingCatalog {
+    // 2027-03-01 00:00 America/Los_Angeles，按官方公布的优惠截止时间切换。
+    private static let gpt62UltrafastPromotionEnd = Date(timeIntervalSince1970: 1_803_888_000)
+
     static let officialAPI = PricingCatalog(
-        version: "official-api-2026-09-24-v3",
-        verifiedAt: Date(timeIntervalSince1970: 1_790_208_000),
+        version: "official-api-2026-11-26-v4",
+        verifiedAt: Date(timeIntervalSince1970: 1_795_651_200),
         sourceURLs: [
             "https://developers.openai.com/api/docs/pricing/",
             "https://platform.claude.com/docs/en/about-claude/pricing",
             "https://ai.google.dev/gemini-api/docs/pricing"
         ],
         rules: [
-            // OpenAI / Codex. GPT-6 and GPT-5.6 use per-request context pricing.
+            // OpenAI / Codex. Rates verified 2026-11-26; cache writes use the 30m column.
+            contextPricedRule(
+                "gpt-6.2-astra",
+                standardShort: rate(8_000_000, 40_000_000, 400_000, 10_000_000),
+                standardLong: rate(16_000_000, 60_000_000, 800_000, 20_000_000),
+                fastShort: rate(16_000_000, 80_000_000, 800_000, 20_000_000),
+                fastLong: rate(32_000_000, 120_000_000, 1_600_000, 40_000_000),
+                batchShort: rate(4_000_000, 20_000_000, 200_000, 5_000_000),
+                batchLong: rate(8_000_000, 30_000_000, 400_000, 10_000_000),
+                ultrafastShort: rate(24_000_000, 120_000_000, 1_200_000, 30_000_000),
+                ultrafastLong: rate(48_000_000, 180_000_000, 2_400_000, 60_000_000),
+                effectiveUntil: gpt62UltrafastPromotionEnd
+            ),
+            contextPricedRule(
+                "gpt-6.2-astra",
+                standardShort: rate(8_000_000, 40_000_000, 400_000, 10_000_000),
+                standardLong: rate(16_000_000, 60_000_000, 800_000, 20_000_000),
+                fastShort: rate(16_000_000, 80_000_000, 800_000, 20_000_000),
+                fastLong: rate(32_000_000, 120_000_000, 1_600_000, 40_000_000),
+                batchShort: rate(4_000_000, 20_000_000, 200_000, 5_000_000),
+                batchLong: rate(8_000_000, 30_000_000, 400_000, 10_000_000),
+                ultrafastShort: rate(48_000_000, 240_000_000, 2_400_000, 60_000_000),
+                ultrafastLong: rate(96_000_000, 360_000_000, 4_800_000, 120_000_000),
+                effectiveFrom: gpt62UltrafastPromotionEnd
+            ),
+            contextPricedRule(
+                "gpt-6.2-sol",
+                standardShort: rate(2_000_000, 10_000_000, 100_000, 2_500_000),
+                standardLong: rate(4_000_000, 15_000_000, 200_000, 5_000_000),
+                fastShort: rate(4_000_000, 20_000_000, 200_000, 5_000_000),
+                fastLong: rate(8_000_000, 30_000_000, 400_000, 10_000_000),
+                batchShort: rate(1_000_000, 5_000_000, 50_000, 1_250_000),
+                batchLong: rate(2_000_000, 7_500_000, 100_000, 2_500_000),
+                ultrafastShort: rate(6_000_000, 30_000_000, 300_000, 7_500_000),
+                ultrafastLong: rate(12_000_000, 45_000_000, 600_000, 15_000_000),
+                effectiveUntil: gpt62UltrafastPromotionEnd
+            ),
+            contextPricedRule(
+                "gpt-6.2-sol",
+                standardShort: rate(2_000_000, 10_000_000, 100_000, 2_500_000),
+                standardLong: rate(4_000_000, 15_000_000, 200_000, 5_000_000),
+                fastShort: rate(4_000_000, 20_000_000, 200_000, 5_000_000),
+                fastLong: rate(8_000_000, 30_000_000, 400_000, 10_000_000),
+                batchShort: rate(1_000_000, 5_000_000, 50_000, 1_250_000),
+                batchLong: rate(2_000_000, 7_500_000, 100_000, 2_500_000),
+                ultrafastShort: rate(12_000_000, 60_000_000, 600_000, 15_000_000),
+                ultrafastLong: rate(24_000_000, 90_000_000, 1_200_000, 30_000_000),
+                effectiveFrom: gpt62UltrafastPromotionEnd
+            ),
+            contextPricedRule(
+                "gpt-6.1-sol",
+                standardShort: rate(2_000_000, 10_000_000, 100_000, 2_500_000),
+                standardLong: rate(4_000_000, 15_000_000, 200_000, 5_000_000),
+                flexShort: rate(1_000_000, 5_000_000, 50_000, 1_250_000),
+                flexLong: rate(2_000_000, 7_500_000, 100_000, 2_500_000),
+                fastShort: rate(4_000_000, 20_000_000, 200_000, 5_000_000),
+                fastLong: rate(8_000_000, 30_000_000, 400_000, 10_000_000),
+                ultrafastShort: rate(12_000_000, 60_000_000, 600_000, 15_000_000),
+                ultrafastLong: rate(24_000_000, 90_000_000, 1_200_000, 30_000_000)
+            ),
+            contextPricedRule(
+                "gpt-6.1-terra",
+                standardShort: rate(1_000_000, 5_000_000, 50_000, 1_250_000),
+                standardLong: rate(2_000_000, 7_500_000, 100_000, 2_500_000),
+                flexShort: rate(500_000, 2_500_000, 25_000, 625_000),
+                flexLong: rate(1_000_000, 3_750_000, 50_000, 1_250_000),
+                fastShort: rate(2_000_000, 10_000_000, 100_000, 2_500_000),
+                fastLong: rate(4_000_000, 15_000_000, 200_000, 5_000_000)
+            ),
             rule("gpt-5", 1_250_000, 10_000_000, 125_000),
             rule("gpt-5-mini", 250_000, 2_000_000, 25_000),
             rule("gpt-5-nano", 50_000, 400_000, 5_000),
@@ -120,30 +191,32 @@ extension PricingCatalog {
                 flexShort: rate(5_000_000, 25_000_000, 500_000, 6_250_000),
                 flexLong: rate(10_000_000, 37_500_000, 1_000_000, 12_500_000),
                 fastShort: rate(20_000_000, 100_000_000, 2_000_000, 25_000_000),
-                fastLong: rate(40_000_000, 150_000_000, 4_000_000, 50_000_000)
+                fastLong: rate(40_000_000, 150_000_000, 4_000_000, 50_000_000),
+                ultrafastShort: rate(60_000_000, 300_000_000, 6_000_000, 75_000_000),
+                ultrafastLong: rate(120_000_000, 450_000_000, 12_000_000, 150_000_000)
             ),
             contextPricedRule(
                 "gpt-6-sol",
                 standardShort: rate(2_000_000, 10_000_000, 200_000, 2_500_000),
-                standardLong: rate(4_000_000, 20_000_000, 400_000, 5_000_000),
+                standardLong: rate(4_000_000, 15_000_000, 400_000, 5_000_000),
                 flexShort: rate(1_000_000, 5_000_000, 100_000, 1_250_000),
-                flexLong: rate(2_000_000, 10_000_000, 200_000, 2_500_000),
+                flexLong: rate(2_000_000, 7_500_000, 200_000, 2_500_000),
                 fastShort: rate(4_000_000, 20_000_000, 400_000, 5_000_000),
-                fastLong: rate(8_000_000, 40_000_000, 800_000, 10_000_000)
+                fastLong: rate(8_000_000, 30_000_000, 800_000, 10_000_000)
             ),
             contextPricedRule(
                 "gpt-6-luna",
                 standardShort: rate(100_000, 500_000, 10_000, 125_000),
-                standardLong: rate(200_000, 1_000_000, 20_000, 250_000),
+                standardLong: rate(200_000, 750_000, 20_000, 250_000),
                 flexShort: rate(50_000, 250_000, 5_000, 62_500),
-                flexLong: rate(100_000, 500_000, 10_000, 125_000),
+                flexLong: rate(100_000, 375_000, 10_000, 125_000),
                 fastShort: rate(200_000, 1_000_000, 20_000, 250_000),
-                fastLong: rate(400_000, 2_000_000, 40_000, 500_000)
+                fastLong: rate(400_000, 1_500_000, 40_000, 500_000)
             ),
             contextPricedRule(
                 "gpt-5.6-sol",
                 standardShort: rate(4_000_000, 20_000_000, 400_000, 5_000_000),
-                standardLong: rate(8_000_000, 40_000_000, 800_000, 10_000_000),
+                standardLong: rate(8_000_000, 30_000_000, 800_000, 10_000_000),
                 flexShort: rate(2_000_000, 10_000_000, 200_000, 2_500_000),
                 flexLong: rate(4_000_000, 15_000_000, 400_000, 5_000_000),
                 fastShort: rate(8_000_000, 40_000_000, 800_000, 10_000_000),
@@ -152,7 +225,7 @@ extension PricingCatalog {
             contextPricedRule(
                 "gpt-5.6-terra",
                 standardShort: rate(2_000_000, 12_000_000, 200_000, 2_500_000),
-                standardLong: rate(4_000_000, 24_000_000, 400_000, 5_000_000),
+                standardLong: rate(4_000_000, 18_000_000, 400_000, 5_000_000),
                 flexShort: rate(1_000_000, 6_000_000, 100_000, 1_250_000),
                 flexLong: rate(2_000_000, 9_000_000, 200_000, 2_500_000),
                 fastShort: rate(4_000_000, 24_000_000, 400_000, 5_000_000),
@@ -161,7 +234,7 @@ extension PricingCatalog {
             contextPricedRule(
                 "gpt-5.6-luna",
                 standardShort: rate(200_000, 1_200_000, 20_000, 250_000),
-                standardLong: rate(400_000, 2_400_000, 40_000, 500_000),
+                standardLong: rate(400_000, 1_800_000, 40_000, 500_000),
                 flexShort: rate(100_000, 600_000, 10_000, 125_000),
                 flexLong: rate(200_000, 900_000, 20_000, 250_000),
                 fastShort: rate(400_000, 2_400_000, 40_000, 500_000),
@@ -283,29 +356,33 @@ extension PricingCatalog {
         _ model: String,
         standardShort: TokenPriceRate,
         standardLong: TokenPriceRate,
-        flexShort: TokenPriceRate,
-        flexLong: TokenPriceRate,
+        flexShort: TokenPriceRate? = nil,
+        flexLong: TokenPriceRate? = nil,
         fastShort: TokenPriceRate,
-        fastLong: TokenPriceRate
+        fastLong: TokenPriceRate,
+        batchShort: TokenPriceRate? = nil,
+        batchLong: TokenPriceRate? = nil,
+        ultrafastShort: TokenPriceRate? = nil,
+        ultrafastLong: TokenPriceRate? = nil,
+        effectiveFrom: Date? = nil,
+        effectiveUntil: Date? = nil
     ) -> ModelPricingRule {
-        ModelPricingRule(
+        let tiers: [String: TokenPriceRate?] = [
+            "batch": batchShort ?? flexShort, "flex": flexShort,
+            "fast": fastShort, "priority": fastShort, "ultrafast": ultrafastShort
+        ]
+        let longTiers: [String: TokenPriceRate?] = [
+            "batch": batchLong ?? flexLong, "flex": flexLong,
+            "fast": fastLong, "priority": fastLong, "ultrafast": ultrafastLong
+        ]
+        return ModelPricingRule(
             canonicalModel: model,
             standardRate: standardShort,
             longContextRate: standardLong,
-            tierRates: [
-                "batch": flexShort,
-                "flex": flexShort,
-                "fast": fastShort,
-                "priority": fastShort
-            ],
-            longContextTierRates: [
-                "batch": flexLong,
-                "flex": flexLong,
-                "fast": fastLong,
-                "priority": fastLong
-            ],
-            effectiveFrom: nil,
-            effectiveUntil: nil
+            tierRates: tiers.compactMapValues { $0 },
+            longContextTierRates: longTiers.compactMapValues { $0 },
+            effectiveFrom: effectiveFrom,
+            effectiveUntil: effectiveUntil
         )
     }
 

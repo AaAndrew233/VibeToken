@@ -131,9 +131,9 @@ Token 来自结构化用量字段。Kiro CLI 是例外：其原生会话日志�
 
 未知模型不会套用猜测价格。历史用量目前按已安装版本内置的价格目录回算。
 
-内置价格目录会记录核对日期、生效日期和 OpenAI、Anthropic、Google 官方来源地址，并包含 GPT-6 Astra、GPT-6 Sol、GPT-6 Luna、最新 GPT-5.6 系列和 GPT-5 Pro 系列价格。对于 GPT-6 和 GPT-5.6，每条用量事件的总输入 Token 超过 272K 时采用官方长上下文价格，否则采用短上下文价格；模型标识以 `-flex`、`-batch`、`-fast` 或 `-priority` 结尾时采用对应的官方处理档位价格，其中 `priority` 作为当前 Fast 模式名称的兼容别名保留。用量快照也会按其中最近一条事件的时间选择限时价格，例如 Claude Sonnet 5 会在 2026 年 9 月 1 日结束首发价格；跨越价格切换日的统计区间仍是聚合估算，不是逐事件账单。OpenCode 的模型标识能够识别时，会自动复用对应供应商的价格。
+内置价格目录记录核对日期、生效日期和 OpenAI、Anthropic、Google 官方来源。2026 年 11 月 26 日更新了 OpenAI GPT-6/GPT-5.6 条目，补齐 GPT-6.2 Astra/Sol、GPT-6.1 Sol/Terra，并修正旧型号的长上下文输出价格；Anthropic、Google 条目沿用此前核对结果。GPT-6 和 GPT-5.6 每条用量事件的总输入 Token 超过 272K 时采用长上下文价格。模型标识以 `-batch`、`-flex`、`-fast`、`-priority` 或 `-ultrafast` 结尾时，只有已公布该档位价格才会计价；不支持的档位保留为未定价，`priority` 兼容 Fast。GPT-6.2 没有 Flex 价格；Ultrafast 在美国太平洋时间 2027 年 3 月 1 日 00:00 前为 Standard 的 3 倍，之后为 6 倍。用量快照按其中最近一条事件的时间选择限时价格，所以跨价格切换日的区间仍是聚合估算，不是逐事件账单。OpenCode 复用匹配到的供应商价格。本次价格更新尚未将 Codex 独立的 `service_tier` 字段转换为模型后缀。
 
-模型提供独立缓存写入价格时按官方缓存写入价格计算，旧价格条目没有该字段时回退到普通输入价格。当前仍不计算 Gemini 缓存存储时长、区域处理加价、订阅套餐、免费额度、供应商折扣、税费和工具调用费用。模型没有匹配到内置价格时，Token 仍会正常统计，界面会明确显示费用覆盖不完整或暂无定价，不会虚构单价。
+模型提供独立缓存写入价格时按官方缓存写入价格计算，旧价格条目没有该字段时回退到普通输入价格。OpenAI 条目采用 30 分钟缓存写入价格，当前日志计价尚未区分 12 小时缓存写入。当前仍不计算 Gemini 缓存存储时长、区域处理加价、订阅套餐、免费额度、供应商折扣、税费和工具调用费用。模型没有匹配到内置价格时，Token 仍会正常统计，界面会明确显示费用覆盖不完整或暂无定价，不会虚构单价。
 
 价格来源：[OpenAI](https://developers.openai.com/api/docs/pricing/)、[Anthropic](https://platform.claude.com/docs/en/about-claude/pricing)、[Google Gemini](https://ai.google.dev/gemini-api/docs/pricing)。
 

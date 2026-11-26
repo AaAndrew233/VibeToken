@@ -3,6 +3,26 @@ import XCTest
 @testable import VibeToken
 
 final class CodexTokenEventParserTests: XCTestCase {
+    func testNewModelUsageFlowsIntoPricingWithoutAnIngestionAllowlist() throws {
+        let fileURL = try makeFixture(lines: [
+            #"{"timestamp":"2026-11-26T01:00:00Z","type":"turn_context","payload":{"model":"gpt-6.2-astra"}}"#,
+            #"{"timestamp":"2026-11-26T01:01:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000,"cached_input_tokens":600,"cache_write_input_tokens":100,"output_tokens":500,"reasoning_output_tokens":200,"total_tokens":1500}}}}"#
+        ])
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        let batch = try CodexTokenEventParser().parseIncrementalUsage(
+            in: fileURL, sessionIdentifier: "new-model", initialState: .initial,
+            chunkBytes: 64 * 1_024, maximumLineBytes: 1_024 * 1_024
+        )
+        XCTAssertEqual(batch.events.count, 1)
+        XCTAssertEqual(batch.events.first?.model, "gpt-6.2-astra")
+        XCTAssertEqual(batch.events.first?.counters.totalTokens, 1_500)
+        let snapshot = try XCTUnwrap(batch.latestSnapshot)
+        let estimate = try XCTUnwrap(CostEstimator(catalog: .officialAPI).estimateKnown(for: [snapshot]))
+        XCTAssertEqual(estimate.amount.micros, 23_640)
+        XCTAssertEqual(estimate.totalTokens, 1_500)
+        XCTAssertEqual(estimate.coveragePercentage, 100)
+    }
+
     func testParsesLatestCumulativeUsageAndNormalizesSubcategories() throws {
         let fileURL = try makeFixture(
             lines: [

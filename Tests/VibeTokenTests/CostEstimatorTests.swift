@@ -5,12 +5,109 @@ import XCTest
 final class CostEstimatorTests: XCTestCase {
     private let estimator = CostEstimator(catalog: .officialAPI)
 
+    func testGPT62AstraTokensReceivePricingCoverage() throws {
+        let result = try XCTUnwrap(estimator.estimateKnown(for: [
+            snapshot(model: "gpt-6.2-astra")
+        ]))
+
+        XCTAssertEqual(result.amount.micros, 98_400_000)
+        XCTAssertEqual(result.pricedTokens, 5_000_000)
+        XCTAssertEqual(result.coveragePercentage, 100)
+        XCTAssertTrue(result.isComplete)
+    }
+
     func testUsesDocumentedFormulaForStandardCodexPricing() throws {
         let estimate = try XCTUnwrap(estimator.estimate(for: snapshot(model: "gpt-5.6-sol")))
 
         XCTAssertEqual(estimate.amount, MoneyAmount(micros: 49_400_000, currencyCode: "USD"))
         XCTAssertEqual(estimate.matchedModel, "gpt-5.6-sol")
         XCTAssertNil(estimate.tier)
+    }
+
+    func testGPT61And62MatchOfficialContextAndTierPrices() throws {
+        let cases: [(String, PricingContext, TokenPriceRate)] = [
+            ("gpt-6.2-astra", .short, priceRate(8, 0.4, 10, 40)),
+            ("gpt-6.2-astra", .long, priceRate(16, 0.8, 20, 60)),
+            ("gpt-6.2-astra-batch", .long, priceRate(8, 0.4, 10, 30)),
+            ("gpt-6.2-astra-fast", .short, priceRate(16, 0.8, 20, 80)),
+            ("gpt-6.2-astra-priority", .long, priceRate(32, 1.6, 40, 120)),
+            ("gpt-6.2-sol", .short, priceRate(2, 0.1, 2.5, 10)),
+            ("gpt-6.2-sol", .long, priceRate(4, 0.2, 5, 15)),
+            ("gpt-6.2-sol-batch", .short, priceRate(1, 0.05, 1.25, 5)),
+            ("gpt-6.2-sol-fast", .long, priceRate(8, 0.4, 10, 30)),
+            ("gpt-6.1-sol", .short, priceRate(2, 0.1, 2.5, 10)),
+            ("gpt-6.1-sol", .long, priceRate(4, 0.2, 5, 15)),
+            ("gpt-6.1-sol-flex", .long, priceRate(2, 0.1, 2.5, 7.5)),
+            ("gpt-6.1-sol-batch", .short, priceRate(1, 0.05, 1.25, 5)),
+            ("gpt-6.1-sol-fast", .long, priceRate(8, 0.4, 10, 30)),
+            ("gpt-6.1-sol-ultrafast", .short, priceRate(12, 0.6, 15, 60)),
+            ("gpt-6.1-sol-ultrafast", .long, priceRate(24, 1.2, 30, 90)),
+            ("gpt-6.1-terra", .short, priceRate(1, 0.05, 1.25, 5)),
+            ("gpt-6.1-terra", .long, priceRate(2, 0.1, 2.5, 7.5)),
+            ("gpt-6.1-terra-flex", .short, priceRate(0.5, 0.025, 0.625, 2.5)),
+            ("gpt-6.1-terra-batch", .long, priceRate(1, 0.05, 1.25, 3.75)),
+            ("gpt-6.1-terra-priority", .long, priceRate(4, 0.2, 5, 15)),
+            ("gpt-6-astra-ultrafast", .long, priceRate(120, 12, 150, 450))
+        ]
+        for (model, context, expected) in cases {
+            let match = try XCTUnwrap(PricingCatalog.officialAPI.match(
+                model: " OpenAI/\(model.uppercased()) ",
+                at: Date(timeIntervalSince1970: 1_795_651_200),
+                context: context
+            ))
+            XCTAssertEqual(match.rate, expected, "\(model) \(context)")
+        }
+    }
+
+    func testGPT62UltrafastPromotionEndsAtPacificMidnight() throws {
+        let boundary = Date(timeIntervalSince1970: 1_803_888_000)
+        let cases: [(String, PricingContext, TokenPriceRate, TokenPriceRate)] = [
+            ("gpt-6.2-astra-ultrafast", .short,
+             priceRate(24, 1.2, 30, 120), priceRate(48, 2.4, 60, 240)),
+            ("gpt-6.2-astra-ultrafast", .long,
+             priceRate(48, 2.4, 60, 180), priceRate(96, 4.8, 120, 360)),
+            ("gpt-6.2-sol-ultrafast", .short,
+             priceRate(6, 0.3, 7.5, 30), priceRate(12, 0.6, 15, 60)),
+            ("gpt-6.2-sol-ultrafast", .long,
+             priceRate(12, 0.6, 15, 45), priceRate(24, 1.2, 30, 90))
+        ]
+        for (model, context, promotional, regular) in cases {
+            let before = try XCTUnwrap(PricingCatalog.officialAPI.match(
+                model: model, at: boundary.addingTimeInterval(-1), context: context
+            ))
+            let after = try XCTUnwrap(PricingCatalog.officialAPI.match(
+                model: model, at: boundary, context: context
+            ))
+            XCTAssertEqual(before.rate, promotional, model)
+            XCTAssertEqual(after.rate, regular, model)
+            XCTAssertEqual(after.tier, "ultrafast")
+        }
+        for model in ["gpt-6.2-astra", "gpt-6.2-sol-fast", "gpt-6.2-astra-batch"] {
+            XCTAssertEqual(
+                PricingCatalog.officialAPI.match(model: model, at: boundary.addingTimeInterval(-1))?.rate,
+                PricingCatalog.officialAPI.match(model: model, at: boundary)?.rate
+            )
+        }
+    }
+
+    func testUnsupportedExplicitTiersDoNotFallBackToStandard() {
+        for model in ["gpt-6.2-astra-flex", "gpt-6.2-sol-flex", "gpt-6.1-terra-ultrafast",
+                      "unknown-private-model-ultrafast"] {
+            XCTAssertNil(estimator.estimate(for: snapshot(model: model)), model)
+        }
+    }
+
+    func testNewModelsRestoreCoverageWithoutChangingTokenCounts() throws {
+        let rows = [snapshot(model: "gpt-6.2-astra"), snapshot(model: "gpt-6.2-sol"),
+                    snapshot(model: "gpt-6.1-sol"), snapshot(model: "gpt-6.1-terra")]
+        let total = try XCTUnwrap(estimator.estimateKnown(for: rows))
+        XCTAssertEqual(total.totalTokens, 20_000_000)
+        XCTAssertEqual(total.pricedTokens, total.totalTokens)
+        XCTAssertTrue(total.isComplete)
+        let mixed = try XCTUnwrap(estimator.estimateKnown(for: rows + [snapshot(model: "unknown-private-model")]))
+        XCTAssertEqual(mixed.totalTokens, 25_000_000)
+        XCTAssertEqual(mixed.pricedTokens, 20_000_000)
+        XCTAssertFalse(mixed.isComplete)
     }
 
     func testUsesTierPricingWhenModelCarriesFlexSuffix() throws {
@@ -53,9 +150,9 @@ final class CostEstimatorTests: XCTestCase {
         )))
 
         XCTAssertEqual(solShort.amount.micros, 24_700_000)
-        XCTAssertEqual(solLong.amount.micros, 49_400_000)
+        XCTAssertEqual(solLong.amount.micros, 39_400_000)
         XCTAssertEqual(lunaShort.amount.micros, 1_235_000)
-        XCTAssertEqual(lunaLong.amount.micros, 2_470_000)
+        XCTAssertEqual(lunaLong.amount.micros, 1_970_000)
     }
 
     func testGPT5ProFamilyUsesCurrentOfficialRates() throws {
@@ -133,9 +230,9 @@ final class CostEstimatorTests: XCTestCase {
     func testGPT56FlagshipModelsUseOfficialContextRates() throws {
         let cases: [(String, PricingContext, Int64)] = [
             ("gpt-5.6-terra", .short, 28_700_000),
-            ("gpt-5.6-terra", .long, 57_400_000),
+            ("gpt-5.6-terra", .long, 45_400_000),
             ("gpt-5.6-luna", .short, 2_870_000),
-            ("gpt-5.6-luna", .long, 5_740_000)
+            ("gpt-5.6-luna", .long, 4_540_000)
         ]
 
         for (model, context, expectedMicros) in cases {
@@ -211,11 +308,11 @@ final class CostEstimatorTests: XCTestCase {
     }
 
     func testCatalogRetainsOfficialVerificationMetadata() {
-        XCTAssertEqual(PricingCatalog.officialAPI.version, "official-api-2026-09-24-v3")
+        XCTAssertEqual(PricingCatalog.officialAPI.version, "official-api-2026-11-26-v4")
         XCTAssertEqual(PricingCatalog.officialAPI.sourceURLs.count, 3)
         XCTAssertEqual(
             PricingCatalog.officialAPI.verifiedAt,
-            Date(timeIntervalSince1970: 1_790_208_000)
+            Date(timeIntervalSince1970: 1_795_651_200)
         )
     }
 
