@@ -26,11 +26,13 @@ final class AppState {
     private(set) var isRefreshing = false
     private(set) var lastRefreshAt: Date?
     private(set) var launchAtLogin: Bool
+    private(set) var launchAtLoginNeedsApproval = false
+    private(set) var launchAtLoginUpdateFailed = false
     var sourceStatus: SourceStatus = .loading
     var dockIconMode: DockIconMode {
         didSet {
             guard dockIconMode != oldValue else { return }
-            UserDefaults.standard.set(dockIconMode.rawValue, forKey: DockIconMode.userDefaultsKey)
+            dockIconMode.save()
             onDockIconModeChange?(dockIconMode)
         }
     }
@@ -99,6 +101,7 @@ final class AppState {
         launchAtLogin = LaunchAtLogin.savedPreference() ?? LaunchAtLogin.isRegistered
         refreshMode = UserDefaults.standard.string(forKey: Self.refreshModeKey)
             .flatMap(RefreshMode.init(rawValue:)) ?? .realTime
+        refreshLaunchAtLoginStatus()
     }
 
     func startMonitoring() {
@@ -279,16 +282,41 @@ final class AppState {
 
     func setLaunchAtLogin(_ enabled: Bool) {
         guard enabled != launchAtLogin else { return }
+        launchAtLogin = enabled
         do {
-            try LaunchAtLogin.setRegistered(enabled)
-            LaunchAtLogin.savePreference(enabled)
-            launchAtLogin = enabled
+            try LaunchAtLogin.updatePreference(enabled)
+            launchAtLoginUpdateFailed = false
         } catch {
-            launchAtLogin = LaunchAtLogin.savedPreference() ?? LaunchAtLogin.isRegistered
+            launchAtLoginUpdateFailed = true
             PrivacyLog.lifecycle.error(
                 "Launch-at-login setting failed: \(error.localizedDescription, privacy: .private(mask: .hash))"
             )
         }
+        refreshLaunchAtLoginStatus()
+    }
+
+    func restoreLaunchAtLoginPreference() {
+        do {
+            try LaunchAtLogin.restorePreference()
+            launchAtLoginUpdateFailed = false
+        } catch {
+            launchAtLoginUpdateFailed = true
+            PrivacyLog.lifecycle.error(
+                "Launch-at-login restore failed: \(error.localizedDescription, privacy: .private(mask: .hash))"
+            )
+        }
+        refreshLaunchAtLoginStatus()
+    }
+
+    func refreshLaunchAtLoginStatus() {
+        launchAtLoginNeedsApproval = launchAtLogin && LaunchAtLogin.requiresApproval
+        launchAtLoginUpdateFailed = launchAtLogin != LaunchAtLogin.isRegistered
+    }
+
+    var launchAtLoginStatusText: String? {
+        if launchAtLoginNeedsApproval { return text(.launchAtLoginPendingApproval) }
+        if launchAtLoginUpdateFailed { return text(.launchAtLoginUpdateFailed) }
+        return nil
     }
 
     func estimatedCostText() -> String {

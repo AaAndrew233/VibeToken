@@ -48,6 +48,8 @@ enum CopyKey: String, Sendable {
     case dockIconMenuBarOnly
     case dockAndStartup
     case launchAtLogin
+    case launchAtLoginPendingApproval
+    case launchAtLoginUpdateFailed
     case refreshMode
     case eventDriven
     case realTimeRefresh
@@ -182,6 +184,8 @@ enum Localizer {
         .dockIconMenuBarOnly: "仅菜单栏",
         .dockAndStartup: "程序坞与启动",
         .launchAtLogin: "开机自动启动",
+        .launchAtLoginPendingApproval: "已保存，请在系统设置的登录项中允许",
+        .launchAtLoginUpdateFailed: "已保存，系统登录项更新失败，下次启动重试",
         .refreshMode: "刷新方式",
         .eventDriven: "实时（事件驱动）",
         .realTimeRefresh: "实时",
@@ -306,6 +310,8 @@ enum Localizer {
         .dockIconMenuBarOnly: "Menu Bar Only",
         .dockAndStartup: "Dock & Startup",
         .launchAtLogin: "Launch at Login",
+        .launchAtLoginPendingApproval: "Saved. Allow VibeToken in System Settings → Login Items.",
+        .launchAtLoginUpdateFailed: "Saved. Login item update failed; retrying on next launch.",
         .refreshMode: "Refresh Mode",
         .eventDriven: "Live (Event-driven)",
         .realTimeRefresh: "Real-time",

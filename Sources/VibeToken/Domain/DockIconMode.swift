@@ -8,7 +8,11 @@ enum DockIconMode: String, CaseIterable, Identifiable, Sendable {
 
     var id: String { rawValue }
 
-    static func load(from userDefaults: UserDefaults = .standard) -> DockIconMode {
+    func save(to userDefaults: UserDefaults = AppSettingsDefaults.shared) {
+        userDefaults.set(rawValue, forKey: Self.userDefaultsKey)
+    }
+
+    static func load(from userDefaults: UserDefaults = AppSettingsDefaults.shared) -> DockIconMode {
         guard let rawValue = userDefaults.string(forKey: userDefaultsKey),
               let mode = DockIconMode(rawValue: rawValue) else {
             return .always

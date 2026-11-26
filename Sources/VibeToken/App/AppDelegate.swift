@@ -125,6 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
                 self?.applyDockIconMode(mode)
             }
             applyDockIconMode(state.dockIconMode)
+            state.restoreLaunchAtLoginPreference()
             configureStatusItem(state: state)
             configurePopover(state: state)
             state.startMonitoring()
@@ -227,6 +228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     private func showSettingsWindow() {
         guard let state else { return }
+        state.refreshLaunchAtLoginStatus()
         if let settingsWindow, settingsWindow.isVisible {
             bringSettingsWindowToFront(settingsWindow, state: state)
             return

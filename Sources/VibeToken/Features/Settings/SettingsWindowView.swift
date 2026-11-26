@@ -20,7 +20,10 @@ struct SettingsWindowView: View {
                     .fixedSize()
                 }
 
-                SettingsRow(title: state.text(.launchAtLogin)) {
+                SettingsRow(
+                    title: state.text(.launchAtLogin),
+                    detail: state.launchAtLoginStatusText
+                ) {
                     Toggle("", isOn: Binding(
                         get: { state.launchAtLogin },
                         set: { state.setLaunchAtLogin($0) }
@@ -38,25 +41,39 @@ struct SettingsWindowView: View {
         .padding(24)
         .frame(width: 420, height: 220, alignment: .topLeading)
         .background(Color(nsColor: .windowBackgroundColor))
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            state.refreshLaunchAtLoginStatus()
+        }
     }
 }
 
 private struct SettingsRow<Control: View>: View {
     let title: String
+    let detail: String?
     @ViewBuilder let control: () -> Control
 
     init(
         title: String,
+        detail: String? = nil,
         @ViewBuilder control: @escaping () -> Control
     ) {
         self.title = title
+        self.detail = detail
         self.control = control
     }
 
     var body: some View {
         HStack(spacing: 16) {
-            Text(title)
-                .font(.system(size: 13, weight: .medium))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
+                if let detail {
+                    Text(detail)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
             Spacer(minLength: 12)
             control()
         }
